@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+venv/
+backend/venv/
+.venv/
+
+# Environment and Secrets
+.env
+*.env.local
+
+# Python cache & test artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+frontend/dist/
+dist/
+build/
+
+# Archives & Temporary files
+*.zip
+*.tar.gz
+*.DS_Store
+Thumbs.db
+
+# Cloud / Framework caches
+.vercel/
+frontend/.vercel/
