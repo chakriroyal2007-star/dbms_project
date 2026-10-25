@@ -34,6 +34,8 @@ export interface Incident {
   estimated_patient_count: number;
   voice_transcript?: string;
   detected_language?: string;
+  structured_extraction?: StructuredEmergencyExtraction;
+  structured_extraction_json?: StructuredEmergencyExtraction;
   evidence_urls?: Array<{ url: string; category?: string; media_category?: string; filename?: string; size_bytes?: number }>;
   evidence_urls_json?: Array<{ url: string; media_category?: string; filename?: string; size_bytes?: number }>;
   timeline_events_json?: Array<{ status: string; title: string; description: string; actor_role?: string; timestamp: string }>;
@@ -41,6 +43,30 @@ export interface Incident {
   resolution_notes?: string;
   created_at: string;
 }
+
+export interface StructuredEmergencyExtraction {
+  original_transcript: string;
+  confirmed_transcript?: string;
+  incident_summary: string;
+  incident_type: string;
+  reported_location: string;
+  people_affected: string;
+  reported_injuries: string[];
+  reported_hazards: string[];
+  assistance_requested: string[];
+  unknown_fields: string[];
+  extraction_status: string;
+  confirmation_status: string;
+  summary?: string;
+  incident_category?: string;
+  affected_people_count?: string;
+  estimated_casualties?: number;
+  observed_severity?: string;
+  unknown_details?: string[];
+  provenance?: string;
+  verification_status?: string;
+}
+
 
 export interface PublicTrackedIncident {
   tracking_code: string;
@@ -61,6 +87,8 @@ export interface PublicTrackedIncident {
     timestamp: string;
   }>;
   first_aid_guidance: string[];
+  voice_transcript?: string;
+  structured_extraction_json?: StructuredEmergencyExtraction;
 }
 
 export interface ResponderAssignment {

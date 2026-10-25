@@ -37,6 +37,7 @@ def run_migrations():
     add_col_if_missing("incident", "reporter_consent", "BOOLEAN DEFAULT 1")
     add_col_if_missing("incident", "voice_transcript", "TEXT")
     add_col_if_missing("incident", "detected_language", "VARCHAR(32)")
+    add_col_if_missing("incident", "structured_extraction_json", "JSON")
     add_col_if_missing("incident", "location_accuracy_meters", "FLOAT")
     add_col_if_missing("incident", "is_location_verified", "BOOLEAN DEFAULT 0")
     add_col_if_missing("incident", "evidence_urls_json", "JSON")

@@ -175,7 +175,9 @@ def track_incident_public(tracking_code: str, db: Session = Depends(get_db)):
         "updated_at": inc.updated_at,
         "estimated_patient_count": inc.estimated_patient_count,
         "timeline": timeline,
-        "first_aid_guidance": guidance
+        "first_aid_guidance": guidance,
+        "voice_transcript": inc.voice_transcript,
+        "structured_extraction_json": inc.structured_extraction_json
     }
 
 @router.post("/report", response_model=EmergencyReportReceipt)
@@ -234,6 +236,7 @@ def report_emergency_incident(
         estimated_patient_count=max(0, data.estimated_patient_count),
         voice_transcript=data.voice_transcript,
         detected_language=data.detected_language or "en",
+        structured_extraction_json=data.structured_extraction,
         evidence_urls_json=data.evidence_urls or [],
         timeline_events_json=[initial_event],
         created_at=occ_time,
@@ -292,7 +295,9 @@ def report_emergency_incident(
         "tracking_code": tracking_code,
         "tracking_token": tracking_token,
         "message": "Emergency report successfully registered in TERA. Keep this tracking code to monitor real-time response status.",
-        "timeline_events": [initial_event]
+        "timeline_events": [initial_event],
+        "voice_transcript": new_inc.voice_transcript,
+        "structured_extraction": new_inc.structured_extraction_json
     }
 
 @router.post("", response_model=IncidentResponse)

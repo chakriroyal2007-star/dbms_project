@@ -1,25 +1,40 @@
 import os
+import sys
 import uuid
+import shutil
 import subprocess
 import tempfile
 import re
+import logging
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from app.config import settings
 
+logger = logging.getLogger("tera.voice")
+
 class StructuredEmergencyExtraction(BaseModel):
-    summary: str = Field(..., description="Concise summary of explicitly reported emergency details.")
-    incident_category: str = Field(..., description="Categorized emergency type based strictly on reported cues.")
+    original_transcript: str = Field(..., description="Verbatim raw transcript returned by speech recognition.")
+    confirmed_transcript: Optional[str] = Field(None, description="Reporter or operator corrected transcript.")
+    incident_summary: str = Field(..., description="Concise summary of explicitly reported emergency details.")
+    incident_type: str = Field(..., description="Categorized emergency type based strictly on reported cues.")
     reported_location: str = Field("Not specified in audio", description="Explicitly mentioned location or landmark.")
-    affected_people_count: str = Field("Unknown / Not specified", description="Explicit casualty count if stated.")
+    people_affected: str = Field("Unknown / Not specified", description="Explicit casualty count if stated.")
     reported_injuries: List[str] = Field(default_factory=list, description="Explicit injuries or symptoms mentioned.")
     reported_hazards: List[str] = Field(default_factory=list, description="Observed hazards mentioned.")
     assistance_requested: List[str] = Field(default_factory=list, description="Type of assistance requested.")
-    unknown_details: List[str] = Field(default_factory=list, description="Critical operational details missing from speech.")
-    original_transcript: str = Field(..., description="Verbatim raw transcript returned by speech recognition.")
-    user_corrected_transcript: Optional[str] = Field(None, description="Reporter or operator corrected transcript.")
-    provenance: str = Field("MACHINE_GENERATED", description="MACHINE_GENERATED, USER_CORRECTED, or OPERATOR_REVIEWED.")
-    verification_status: str = Field("UNVERIFIED_PENDING_REVIEW", description="Status of operator verification.")
+    unknown_fields: List[str] = Field(default_factory=list, description="Critical operational details missing from speech.")
+    extraction_status: str = Field("SUCCESS", description="SUCCESS, PARTIAL, or FAILED.")
+    confirmation_status: str = Field("UNCONFIRMED_PENDING_REVIEW", description="Status of reporter/operator review.")
+
+    # Backward-compatible aliases
+    summary: Optional[str] = None
+    incident_category: Optional[str] = None
+    affected_people_count: Optional[str] = None
+    estimated_casualties: Optional[Any] = None
+    observed_severity: Optional[str] = None
+    unknown_details: Optional[List[str]] = None
+    provenance: Optional[str] = None
+    verification_status: Optional[str] = None
 
 def extract_structured_emergency_report(
     transcript: Optional[str],
@@ -36,16 +51,25 @@ def extract_structured_emergency_report(
     effective_text = (user_corrected or transcript or "").strip()
     if not effective_text:
         return {
-            "summary": "No audible or intelligible speech was detected in this recording.",
-            "incident_category": "UNKNOWN",
+            "original_transcript": transcript or "",
+            "confirmed_transcript": user_corrected,
+            "incident_summary": "No audible or intelligible speech was detected in this recording.",
+            "incident_type": "UNKNOWN",
             "reported_location": "Not specified in audio",
-            "affected_people_count": "Unknown / Not specified",
+            "people_affected": "Unknown / Not specified",
             "reported_injuries": [],
             "reported_hazards": [],
             "assistance_requested": [],
-            "unknown_details": ["No speech details captured. Dispatch requires manual contact or location verification."],
-            "original_transcript": transcript or "",
-            "user_corrected_transcript": user_corrected,
+            "unknown_fields": ["Incident details were not verbalized. Operator manual verification required."],
+            "extraction_status": "FAILED_NO_TEXT",
+            "confirmation_status": "UNCONFIRMED_PENDING_REVIEW",
+            # Backward-compatible aliases
+            "summary": "No audible or intelligible speech was detected in this recording.",
+            "incident_category": "UNKNOWN",
+            "affected_people_count": "Unknown / Not specified",
+            "estimated_casualties": "Unknown / Not specified",
+            "observed_severity": "NEEDS_CONFIRMATION",
+            "unknown_details": ["Incident details were not verbalized."],
             "provenance": "USER_CORRECTED" if user_corrected else "MACHINE_GENERATED",
             "verification_status": "UNVERIFIED_PENDING_REVIEW"
         }
@@ -130,7 +154,6 @@ def extract_structured_emergency_report(
     if "traffic" in lower_text or "highway" in lower_text:
         hazards.append("Active highway traffic hazard")
 
-
     # 7. Assistance Requested
     assistance = []
     if any(k in lower_text for k in ["ambulance", "medic", "paramedic", "doctor"]):
@@ -157,22 +180,28 @@ def extract_structured_emergency_report(
     summary += "."
 
     return {
-        "summary": summary,
-        "incident_category": category,
+        "original_transcript": transcript or "",
+        "confirmed_transcript": user_corrected,
+        "incident_summary": summary,
+        "incident_type": category,
         "reported_location": reported_loc,
-        "affected_people_count": str(casualties),
-        "estimated_casualties": int_casualties,
-        "observed_severity": severity,
+        "people_affected": str(casualties),
         "reported_injuries": injuries,
         "reported_hazards": hazards,
         "assistance_requested": assistance,
+        "unknown_fields": unknowns,
+        "extraction_status": "SUCCESS",
+        "confirmation_status": "CONFIRMED_BY_USER" if user_corrected else "UNCONFIRMED_PENDING_REVIEW",
+        # Backward-compatible aliases
+        "summary": summary,
+        "incident_category": category,
+        "affected_people_count": str(casualties),
+        "estimated_casualties": int_casualties,
+        "observed_severity": severity,
         "unknown_details": unknowns,
-        "original_transcript": transcript or "",
-        "user_corrected_transcript": user_corrected,
         "provenance": "USER_CORRECTED" if user_corrected else "MACHINE_GENERATED",
         "verification_status": "UNVERIFIED_PENDING_REVIEW"
     }
-
 
 def transcribe_audio_payload(
     file_path: str,
@@ -181,66 +210,119 @@ def transcribe_audio_payload(
     """
     Processes real audio files using the configured Speech-to-Text provider.
     Never invents or falls back to synthetic emergency text.
-    Returns structured results with correlation IDs and provider diagnostics.
+    Returns structured results with correlation IDs, provider diagnostics, and both error/message keys.
     """
     correlation_id = f"stt_{uuid.uuid4().hex[:12]}"
+    logger.info(f"[{correlation_id}] Processing voice upload: {file_path} (content_type: {content_type})")
     
     if not os.path.exists(file_path):
+        err_msg = "The specified audio file does not exist on the server."
+        logger.error(f"[{correlation_id}] File not found: {file_path}")
         return {
             "status": "FILE_NOT_FOUND",
             "correlation_id": correlation_id,
             "transcript": None,
             "confidence": None,
             "provider": settings.SPEECH_PROVIDER,
-            "error": "The specified audio file does not exist on the server.",
+            "error": err_msg,
+            "message": err_msg,
             "retryable": False
         }
 
     file_size = os.path.getsize(file_path)
     if file_size < 100:
+        err_msg = f"Audio file is empty or corrupted ({file_size} bytes)."
+        logger.warning(f"[{correlation_id}] Empty audio upload ({file_size} bytes)")
         return {
             "status": "EMPTY_AUDIO",
             "correlation_id": correlation_id,
             "transcript": None,
             "confidence": None,
             "provider": settings.SPEECH_PROVIDER,
-            "error": f"Audio file is empty or corrupted ({file_size} bytes).",
+            "error": err_msg,
+            "message": err_msg,
             "retryable": False
         }
+
+    # Inspect file header to see if it is a native WAV (RIFF....WAVE)
+    is_native_wav = False
+    try:
+        with open(file_path, "rb") as check_f:
+            hdr = check_f.read(12)
+            if len(hdr) >= 12 and hdr[:4] == b"RIFF" and hdr[8:12] == b"WAVE":
+                is_native_wav = True
+    except Exception as read_ex:
+        logger.warning(f"[{correlation_id}] Header inspection exception: {read_ex}")
 
     ext = os.path.splitext(file_path)[1].lower()
     temp_wav = None
 
     try:
-        # Convert non-standard audio to 16kHz mono WAV for speech engine compatibility
-        if ext != ".wav":
+        if is_native_wav:
+            audio_source_path = file_path
+            logger.info(f"[{correlation_id}] Native WAV stream confirmed ({file_size} bytes).")
+        else:
+            # Non-WAV file: requires ffmpeg
+            ffmpeg_path = shutil.which("ffmpeg")
+            if not ffmpeg_path:
+                err_msg = "Audio format requires server-side transcoding (ffmpeg), which is not installed. Please record audio using standard WAV format."
+                logger.error(f"[{correlation_id}] ffmpeg missing for non-WAV format '{ext}'.")
+                return {
+                    "status": "INVALID_AUDIO_FORMAT",
+                    "correlation_id": correlation_id,
+                    "transcript": None,
+                    "confidence": None,
+                    "provider": settings.SPEECH_PROVIDER,
+                    "error": err_msg,
+                    "message": err_msg,
+                    "retryable": False
+                }
+
             temp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
-            cmd = ["ffmpeg", "-y", "-i", file_path, "-ac", "1", "-ar", "16000", temp_wav]
+            cmd = [ffmpeg_path, "-y", "-i", file_path, "-ac", "1", "-ar", "16000", temp_wav]
             conv_res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if conv_res.returncode != 0:
+                err_msg = f"Audio format could not be decoded by media pipeline. Supported: {settings.ALLOWED_AUDIO_EXTENSIONS}"
+                logger.error(f"[{correlation_id}] ffmpeg transcoding error: {conv_res.stderr.decode('utf-8', errors='ignore')[:200]}")
                 return {
                     "status": "FORMAT_UNSUPPORTED",
                     "correlation_id": correlation_id,
                     "transcript": None,
                     "confidence": None,
                     "provider": settings.SPEECH_PROVIDER,
-                    "error": f"Audio format could not be decoded by media pipeline. Supported: {settings.ALLOWED_AUDIO_EXTENSIONS}",
+                    "error": err_msg,
+                    "message": err_msg,
                     "retryable": False
                 }
             audio_source_path = temp_wav
-        else:
-            audio_source_path = file_path
 
         # ----------------------------------------------------------------------
-        # Speech Provider: GOOGLE_SPEECH / SpeechRecognition
+        # Speech Provider Invocation: GOOGLE_SPEECH / SpeechRecognition
         # ----------------------------------------------------------------------
-        import speech_recognition as sr
+        try:
+            import speech_recognition as sr
+        except ImportError as imp_err:
+            err_msg = f"Speech recognition engine dependency is missing: {str(imp_err)}. Please verify requirements."
+            logger.error(f"[{correlation_id}] {err_msg}")
+            return {
+                "status": "TRANSCRIPTION_NOT_CONFIGURED",
+                "correlation_id": correlation_id,
+                "transcript": None,
+                "confidence": None,
+                "provider": settings.SPEECH_PROVIDER,
+                "error": err_msg,
+                "message": err_msg,
+                "retryable": False
+            }
+
         r = sr.Recognizer()
         r.energy_threshold = 300
         
         with sr.AudioFile(audio_source_path) as source:
             duration = getattr(source, 'DURATION', None)
             if duration is not None and duration < 0.4:
+                err_msg = f"Audio recording duration is too short ({duration:.2f}s) to extract speech."
+                logger.warning(f"[{correlation_id}] {err_msg}")
                 return {
                     "status": "AUDIO_TOO_SHORT",
                     "correlation_id": correlation_id,
@@ -248,26 +330,31 @@ def transcribe_audio_payload(
                     "confidence": None,
                     "duration_seconds": round(duration, 2) if duration else 0.0,
                     "provider": settings.SPEECH_PROVIDER,
-                    "error": "Audio recording duration is too short (< 0.4 seconds) to extract speech.",
+                    "error": err_msg,
+                    "message": err_msg,
                     "retryable": True
                 }
             audio_data = r.record(source)
 
         try:
             raw_text = r.recognize_google(audio_data, language="en-US")
-            clean_text = raw_text.strip()
+            clean_text = raw_text.strip() if raw_text else ""
             if not clean_text:
+                err_msg = "Audio was recorded, but no intelligible words were recognized."
+                logger.warning(f"[{correlation_id}] No speech detected in audio stream.")
                 return {
                     "status": "NO_SPEECH_DETECTED",
                     "correlation_id": correlation_id,
                     "transcript": None,
                     "confidence": None,
                     "provider": settings.SPEECH_PROVIDER,
-                    "error": "Audio was recorded, but no intelligible words were recognized.",
+                    "error": err_msg,
+                    "message": err_msg,
                     "retryable": True
                 }
 
             extracted = extract_structured_emergency_report(clean_text)
+            logger.info(f"[{correlation_id}] Speech recognition successful: '{clean_text[:60]}...'")
             return {
                 "status": "SUCCESS",
                 "correlation_id": correlation_id,
@@ -276,38 +363,48 @@ def transcribe_audio_payload(
                 "detected_language": "en-US",
                 "extracted_entities": extracted,
                 "provider": settings.SPEECH_PROVIDER,
+                "message": "Audio transcribed successfully.",
                 "retryable": False
             }
 
         except sr.UnknownValueError:
+            err_msg = "No intelligible speech was recognized in the recording."
+            logger.info(f"[{correlation_id}] sr.UnknownValueError: Speech unintelligible.")
             return {
                 "status": "NO_SPEECH_DETECTED",
                 "correlation_id": correlation_id,
                 "transcript": None,
                 "confidence": None,
                 "provider": settings.SPEECH_PROVIDER,
-                "error": "No intelligible speech was recognized in the recording.",
+                "error": err_msg,
+                "message": err_msg,
                 "retryable": True
             }
         except sr.RequestError as e:
+            err_msg = f"Speech-to-text service provider was unreachable: {str(e)}"
+            logger.error(f"[{correlation_id}] sr.RequestError: {err_msg}")
             return {
                 "status": "PROVIDER_UNAVAILABLE",
                 "correlation_id": correlation_id,
                 "transcript": None,
                 "confidence": None,
                 "provider": settings.SPEECH_PROVIDER,
-                "error": f"Speech-to-text service provider was unreachable: {str(e)}",
+                "error": err_msg,
+                "message": err_msg,
                 "retryable": True
             }
 
     except Exception as ex:
+        err_msg = f"Speech processing engine encountered an unexpected error: {str(ex)}"
+        logger.error(f"[{correlation_id}] Unhandled voice exception: {ex}", exc_info=True)
         return {
             "status": "PROVIDER_ERROR",
             "correlation_id": correlation_id,
             "transcript": None,
             "confidence": None,
             "provider": settings.SPEECH_PROVIDER,
-            "error": f"Speech processing engine encountered an unexpected error: {str(ex)}",
+            "error": err_msg,
+            "message": err_msg,
             "retryable": True
         }
     finally:

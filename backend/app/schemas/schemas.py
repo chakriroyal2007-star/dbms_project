@@ -198,9 +198,11 @@ class EmergencyReportRequest(BaseModel):
     reporter_consent: bool = True
     voice_transcript: Optional[str] = None
     detected_language: Optional[str] = "en"
+    structured_extraction: Optional[Dict[str, Any]] = None
     location_accuracy_meters: Optional[float] = None
     is_location_verified: bool = False
     evidence_urls: Optional[List[Dict[str, Any]]] = None
+
 
 class EmergencyReportReceipt(BaseModel):
     incident_id: str
@@ -223,6 +225,8 @@ class EmergencyReportReceipt(BaseModel):
     tracking_token: str
     message: str
     timeline_events: List[Dict[str, Any]] = []
+    voice_transcript: Optional[str] = None
+    structured_extraction: Optional[Dict[str, Any]] = None
 
 class IncidentUpdate(BaseModel):
     incident_type: Optional[str] = None
@@ -266,6 +270,7 @@ class IncidentResponse(BaseModel):
     estimated_patient_count: int
     voice_transcript: Optional[str] = None
     detected_language: Optional[str] = None
+    structured_extraction_json: Optional[Dict[str, Any]] = None
     evidence_urls_json: Optional[List[Dict[str, Any]]] = None
     timeline_events_json: Optional[List[Dict[str, Any]]] = None
     linked_duplicate_id: Optional[str] = None
@@ -289,6 +294,8 @@ class PublicTrackIncidentResponse(BaseModel):
     estimated_patient_count: int
     timeline: List[Dict[str, Any]] = []
     first_aid_guidance: List[str] = []
+    voice_transcript: Optional[str] = None
+    structured_extraction_json: Optional[Dict[str, Any]] = None
 
 class TimelineEventCreate(BaseModel):
     status: str

@@ -20,8 +20,11 @@ class Settings(BaseModel):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     
-    # File Storage / Evidence Vault Settings
-    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads"))
+    # File Storage / Evidence Vault Settings: /tmp on serverless runtime
+    UPLOAD_DIR: str = os.getenv(
+        "UPLOAD_DIR",
+        "/tmp/uploads" if (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")) else str(BASE_DIR / "uploads")
+    )
     MAX_UPLOAD_SIZE_MB: int = 15
     ALLOWED_AUDIO_EXTENSIONS: list[str] = [".wav", ".mp3", ".webm", ".m4a", ".ogg"]
     ALLOWED_IMAGE_EXTENSIONS: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
@@ -41,5 +44,9 @@ class Settings(BaseModel):
 
 settings = Settings()
 
-# Ensure uploads directory exists
-os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+# Ensure uploads directory exists safely
+try:
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+except OSError:
+    pass
+

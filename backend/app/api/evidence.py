@@ -79,9 +79,11 @@ async def upload_evidence(
         result["speech_to_text"] = stt_result
         result["transcript"] = stt_result.get("transcript")
         result["transcription_status"] = stt_result.get("status")
-        result["transcription_message"] = stt_result.get("message")
+        result["transcription_message"] = stt_result.get("message") or stt_result.get("error")
+        result["extracted_entities"] = stt_result.get("extracted_entities")
         
     return result
+
 
 @router.get("/files/{filename}")
 async def get_evidence_file(filename: str):

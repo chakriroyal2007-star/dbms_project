@@ -549,6 +549,108 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </div>
             )}
 
+            {/* Structured Voice AI Extraction (if available) */}
+            {(reviewIncident.structured_extraction_json || reviewIncident.structured_extraction) && (() => {
+              const ext = (reviewIncident.structured_extraction_json || reviewIncident.structured_extraction) as any;
+              return (
+                <div className="p-4 rounded-xl bg-gradient-to-br from-[#0c1424] to-[#070b14] border border-cyan-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-cyan-400" />
+                      <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                        AI Structured Extraction & Triage Analysis
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950 border border-cyan-500/40 text-cyan-300">
+                      {ext.confirmation_status || ext.verification_status || 'VERIFIED'}
+                    </span>
+                  </div>
+
+                  {/* Summary */}
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-cyan-950 text-xs text-cyan-100 font-sans leading-relaxed">
+                    <span className="text-[10px] text-cyan-400 uppercase font-mono font-bold block mb-0.5">Automated Triage Summary</span>
+                    {ext.incident_summary || ext.summary}
+                  </div>
+
+                  {/* Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                    <div className="p-2 rounded bg-black/30 border border-zinc-800">
+                      <span className="text-[10px] text-zinc-400 uppercase font-mono block">Detected Category</span>
+                      <span className="font-bold text-white">{ext.incident_type || ext.incident_category || reviewIncident.incident_type}</span>
+                    </div>
+                    <div className="p-2 rounded bg-black/30 border border-zinc-800">
+                      <span className="text-[10px] text-zinc-400 uppercase font-mono block">Verbal Location</span>
+                      <span className="font-bold text-white truncate block">{ext.reported_location || 'Not stated'}</span>
+                    </div>
+                    <div className="p-2 rounded bg-black/30 border border-zinc-800">
+                      <span className="text-[10px] text-zinc-400 uppercase font-mono block">Casualties</span>
+                      <span className="font-bold text-white">{ext.people_affected || ext.affected_people_count || reviewIncident.estimated_patient_count}</span>
+                    </div>
+                  </div>
+
+                  {/* Hazards & Injuries */}
+                  {((ext.reported_hazards && ext.reported_hazards.length > 0) || (ext.reported_injuries && ext.reported_injuries.length > 0)) && (
+                    <div className="space-y-1.5">
+                      {ext.reported_hazards && ext.reported_hazards.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-mono text-amber-400 uppercase font-bold flex items-center gap-1 mr-1">
+                            <AlertTriangle className="w-3 h-3 text-amber-400" />
+                            Hazards:
+                          </span>
+                          {ext.reported_hazards.map((h: string, idx: number) => (
+                            <span key={idx} className="px-2 py-0.5 rounded text-[10px] bg-amber-950/60 border border-amber-600/40 text-amber-300">
+                              {h}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {ext.reported_injuries && ext.reported_injuries.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-mono text-rose-400 uppercase font-bold flex items-center gap-1 mr-1">
+                            <AlertCircle className="w-3 h-3 text-rose-400" />
+                            Injuries:
+                          </span>
+                          {ext.reported_injuries.map((inj: string, idx: number) => (
+                            <span key={idx} className="px-2 py-0.5 rounded text-[10px] bg-rose-950/60 border border-rose-600/40 text-rose-300">
+                              {inj}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Assistance Requested */}
+                  {ext.assistance_requested && ext.assistance_requested.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold mr-1">
+                        Requested Units:
+                      </span>
+                      {ext.assistance_requested.map((ast: string, idx: number) => (
+                        <span key={idx} className="px-2 py-0.5 rounded text-[10px] bg-cyan-950/70 border border-cyan-500/40 text-cyan-200">
+                          {ast}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Unknown fields requiring operator verification */}
+                  {(ext.unknown_fields || ext.unknown_details) && (ext.unknown_fields || ext.unknown_details).length > 0 && (
+                    <div className="p-2 rounded bg-amber-950/20 border border-amber-500/30 text-[11px] text-amber-200/90 space-y-0.5">
+                      <span className="text-[10px] font-mono text-amber-400 uppercase font-bold block">
+                        Missing Facts to Verify:
+                      </span>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        {(ext.unknown_fields || ext.unknown_details).map((u: string, idx: number) => (
+                          <li key={idx}>{u}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Attached Evidence Preview */}
             {((reviewIncident.evidence_urls && reviewIncident.evidence_urls.length > 0) || (reviewIncident.evidence_urls_json && reviewIncident.evidence_urls_json.length > 0)) && (
               <div className="space-y-2">

@@ -140,3 +140,111 @@ def test_reverse_geocoding_validation():
     assert data["latitude"] == 13.6288
     assert data["longitude"] == 79.4192
     assert "status" in data
+
+def test_successful_audio_transcription_and_structured_persistence():
+    """Verify end-to-end voice upload, extraction, submission, persistence, and tracking."""
+    sample_wav = io.BytesIO(b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00" + b"\x00" * 400)
+    
+    mock_extracted = {
+        "original_transcript": "Road collision on Alipiri bypass road, two people bleeding, send ambulance now",
+        "confirmed_transcript": None,
+        "incident_summary": "Caller reported road accident near Alipiri bypass road with 2 person(s) affected.",
+        "incident_type": "ROAD_ACCIDENT",
+        "reported_location": "Alipiri bypass road",
+        "people_affected": "2",
+        "reported_injuries": ["Active bleeding"],
+        "reported_hazards": ["Active highway traffic hazard"],
+        "assistance_requested": ["Medical Ambulance (ALS/BLS)"],
+        "unknown_fields": [],
+        "extraction_status": "SUCCESS",
+        "confirmation_status": "UNCONFIRMED_PENDING_REVIEW"
+    }
+
+    with patch("app.api.voice.transcribe_audio_payload") as mock_stt:
+        mock_stt.return_value = {
+            "status": "SUCCESS",
+            "correlation_id": "stt_reg_success_1",
+            "transcript": "Road collision on Alipiri bypass road, two people bleeding, send ambulance now",
+            "confidence": 0.94,
+            "detected_language": "en",
+            "extracted_entities": mock_extracted,
+            "provider": "GOOGLE_SPEECH"
+        }
+
+        # 1. Transcribe audio
+        res = client.post(
+            "/api/voice/transcriptions",
+            files={"audio": ("voice_report.wav", sample_wav, "audio/wav")}
+        )
+        assert res.status_code == 200
+        trans_data = res.json()
+        assert trans_data["success"] is True
+        assert trans_data["status"] == "SUCCESS"
+        assert trans_data["transcript"] == mock_extracted["original_transcript"]
+        assert trans_data["extracted_entities"]["incident_type"] == "ROAD_ACCIDENT"
+
+        # 2. Reporter confirms and submits report
+        report_payload = {
+            "incident_type": "ROAD_ACCIDENT",
+            "description": trans_data["transcript"],
+            "severity": "CRITICAL",
+            "latitude": 13.6288,
+            "longitude": 79.4192,
+            "location_name": "Alipiri Bypass Road, Tirupati",
+            "estimated_patient_count": 2,
+            "reporter_name": "Eyewitness Caller",
+            "voice_transcript": trans_data["transcript"],
+            "structured_extraction": {
+                **trans_data["extracted_entities"],
+                "confirmed_transcript": trans_data["transcript"],
+                "confirmation_status": "CONFIRMED_BY_USER"
+            }
+        }
+        rep_res = client.post("/api/incidents/report", json=report_payload)
+        assert rep_res.status_code == 200
+        receipt = rep_res.json()
+        tracking_code = receipt["tracking_code"]
+        assert tracking_code.startswith("TRK-")
+        assert receipt["voice_transcript"] == trans_data["transcript"]
+        assert receipt["structured_extraction"]["confirmation_status"] == "CONFIRMED_BY_USER"
+
+        # 3. Verify bystander tracking reads persisted structured extraction
+        track_res = client.get(f"/api/incidents/track/{tracking_code}")
+        assert track_res.status_code == 200
+        track_data = track_res.json()
+        assert track_data["tracking_code"] == tracking_code
+        assert track_data["voice_transcript"] == trans_data["transcript"]
+        assert track_data["structured_extraction_json"]["people_affected"] == "2"
+        assert track_data["structured_extraction_json"]["incident_type"] == "ROAD_ACCIDENT"
+
+def test_unknown_fields_remain_unknown():
+    """Verify extraction does not fabricate missing facts; unknown details remain explicit."""
+    payload = {
+        "transcript": "I see smoke coming from somewhere behind the trees.",
+        "user_corrected": None
+    }
+    res = client.post("/api/voice/extract-entities", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["reported_location"] == "Not specified in audio"
+    assert data["people_affected"] == "Unknown / Not specified"
+    assert len(data["unknown_fields"]) > 0
+    assert any("location" in u.lower() for u in data["unknown_fields"])
+    assert any("casualty" in u.lower() for u in data["unknown_fields"])
+
+def test_consecutive_recordings_isolation():
+    """Verify consecutive transcriptions have unique correlation IDs and do not leak previous audio."""
+    with patch("app.api.voice.transcribe_audio_payload") as mock_stt:
+        mock_stt.side_effect = [
+            {"status": "SUCCESS", "correlation_id": "corr_1", "transcript": "first recording", "confidence": 0.9, "extracted_entities": None},
+            {"status": "SUCCESS", "correlation_id": "corr_2", "transcript": "second recording", "confidence": 0.9, "extracted_entities": None}
+        ]
+        sample_audio = io.BytesIO(b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00" + b"\x00" * 300)
+        res1 = client.post("/api/voice/transcriptions", files={"audio": ("1.wav", sample_audio, "audio/wav")})
+        sample_audio.seek(0)
+        res2 = client.post("/api/voice/transcriptions", files={"audio": ("2.wav", sample_audio, "audio/wav")})
+
+        assert res1.json()["transcript"] == "first recording"
+        assert res2.json()["transcript"] == "second recording"
+        assert res1.json()["correlation_id"] != res2.json()["correlation_id"]
+

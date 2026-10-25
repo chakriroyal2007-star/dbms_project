@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   X, CheckCircle2, Clock, AlertTriangle, ShieldCheck, MapPin, 
-  PhoneCall, LifeBuoy, ArrowRight, Share2, Copy, Check
+  PhoneCall, LifeBuoy, ArrowRight, Share2, Copy, Check, Mic, Activity
 } from 'lucide-react';
 import { PublicTrackedIncident } from '../types';
 
@@ -91,6 +91,29 @@ export const PublicTrackerModal: React.FC<PublicTrackerModalProps> = ({ incident
               <span>{copied ? 'Copied' : 'Copy Code'}</span>
             </button>
           </div>
+
+          {/* Reporter Voice Note & Structured Triage (if present) */}
+          {(incident.voice_transcript || incident.structured_extraction_json) && (
+            <div className="p-4 rounded-2xl bg-[#080B13] border border-cyan-500/20 space-y-2.5">
+              <div className="flex items-center gap-2 text-cyan-400">
+                <Mic className="w-4 h-4" />
+                <h4 className="text-xs font-bold uppercase tracking-wider font-mono">
+                  Your Recorded Voice Report
+                </h4>
+              </div>
+              {incident.voice_transcript && (
+                <p className="text-xs text-zinc-300 italic font-sans leading-relaxed">
+                  "{incident.voice_transcript}"
+                </p>
+              )}
+              {incident.structured_extraction_json && (
+                <div className="pt-2 border-t border-zinc-800 text-xs text-zinc-400 space-y-1">
+                  <span className="text-[10px] uppercase font-mono text-cyan-400 font-bold block">Structured Summary:</span>
+                  <p className="text-zinc-200">{incident.structured_extraction_json.incident_summary}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Real-Time Event Milestone Timeline */}
           <div className="space-y-3">

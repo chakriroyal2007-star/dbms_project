@@ -140,6 +140,7 @@ export const incidentsApi = {
     location_accuracy_meters?: number;
     is_location_verified?: boolean;
     evidence_urls?: any[];
+    structured_extraction?: any;
   }) => {
     const res = await api.post('/incidents/report', data);
     return res.data;

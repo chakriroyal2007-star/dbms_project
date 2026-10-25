@@ -7,8 +7,9 @@ import {
   ExternalLink, Copy, HelpCircle
 } from 'lucide-react';
 import { incidentsApi, evidenceApi, geocodingApi, voiceApi } from '../services/api';
-import { Incident, User, PublicTrackedIncident } from '../types';
+import { Incident, User, PublicTrackedIncident, StructuredEmergencyExtraction } from '../types';
 import { PublicTrackerModal } from '../components/PublicTrackerModal';
+import { startWavRecording, WavRecorderInstance } from '../utils/wavRecorder';
 
 interface ReporterPortalPageProps {
   initialSubTab?: 'emergency' | 'first_aid' | 'my_incidents' | 'learn';
@@ -43,14 +44,17 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [isLocationVerified, setIsLocationVerified] = useState<boolean>(false);
   
-  // Voice AI & Audio Recording State
+  // Voice AI & Native WAV Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [voiceAudioBlob, setVoiceAudioBlob] = useState<Blob | null>(null);
+  const [rawTranscript, setRawTranscript] = useState<string>('');
   const [voiceTranscript, setVoiceTranscript] = useState<string>('');
+  const [structuredExtraction, setStructuredExtraction] = useState<StructuredEmergencyExtraction | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const wavRecorderRef = useRef<WavRecorderInstance | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<any>(null);
 
   // Photo Evidence State
@@ -166,37 +170,79 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
   // Voice Recording Pipeline (MediaRecorder API)
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
-  // Voice Recording Pipeline (MediaRecorder + Web Speech API)
+  // ---------------------------------------------------------------------------
+  // Voice Recording Pipeline (Native Browser 16kHz WAV + FastAPI Voice Service)
   // ---------------------------------------------------------------------------
   const [speechNotice, setSpeechNotice] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+
+  const applyExtractionToForm = (extraction: StructuredEmergencyExtraction) => {
+    // 1. Incident Type auto-fill if recognized
+    if (extraction.incident_type && extraction.incident_type !== 'UNKNOWN') {
+      const validTypes = ['ROAD_ACCIDENT', 'FIRE_OUTBREAK', 'MEDICAL_EMERGENCY', 'BUILDING_COLLAPSE', 'FLASH_FLOOD', 'HAZMAT_LEAK', 'MASS_CASUALTY'];
+      if (validTypes.includes(extraction.incident_type)) {
+        setIncidentType(extraction.incident_type);
+      }
+    }
+    
+    // 2. Casualties count or unknown status
+    if (extraction.people_affected && extraction.people_affected !== 'Unknown / Not specified') {
+      const parsed = parseInt(extraction.people_affected, 10);
+      if (!isNaN(parsed) && parsed >= 0) {
+        setPatientCount(parsed);
+        setUnknownCasualties(false);
+      }
+    } else if (extraction.unknown_fields && extraction.unknown_fields.some(u => u.toLowerCase().includes('casualty'))) {
+      setUnknownCasualties(true);
+    }
+
+    // 3. Location if reported and not already detailed
+    if (extraction.reported_location && extraction.reported_location !== 'Not specified in audio') {
+      if (!locationName || locationName.startsWith('GPS Coordinates:')) {
+        setLocationName(extraction.reported_location);
+      }
+    }
+  };
+
+  const runStructuredExtraction = async (text: string, userCorrected?: string) => {
+    if (!text.trim()) return;
+    try {
+      setIsExtracting(true);
+      const res = await voiceApi.extractEntities(text, userCorrected);
+      if (res) {
+        setStructuredExtraction(res);
+        applyExtractionToForm(res);
+      }
+    } catch (err: any) {
+      console.warn("Structured extraction error:", err);
+    } finally {
+      setIsExtracting(false);
+    }
+  };
 
   const startVoiceRecording = async () => {
     try {
       setError(null);
       setSpeechNotice(null);
-      setVoiceTranscript(''); // Clear previous recording so it never lingers
+      setVoiceTranscript('');
+      setRawTranscript('');
+      setStructuredExtraction(null);
       
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true
         }
-      };
+      });
+      mediaStreamRef.current = stream;
 
-      mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        setVoiceAudioBlob(audioBlob);
-        stream.getTracks().forEach(t => t.stop());
-        
-        // Upload audio and obtain transcript
-        await processVoiceAudio(audioBlob);
-      };
+      // Start pure 16kHz PCM WAV recorder directly in browser
+      const recorder = await startWavRecording(stream);
+      wavRecorderRef.current = recorder;
 
-      // Native Web Speech API real-time recognition if available in browser
+      // Real-time browser speech preview if available
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRecognition) {
         try {
@@ -211,8 +257,6 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
             }
             if (current.trim()) {
               setVoiceTranscript(current.trim());
-              // Automatically populate description with live real speech
-              setDescription(prev => prev ? prev : current.trim());
             }
           };
           recognition.onerror = (e: any) => {
@@ -221,11 +265,10 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
           recognition.start();
           recognitionRef.current = recognition;
         } catch (recErr) {
-          console.warn("Could not start native Web Speech API:", recErr);
+          console.warn("Could not start Web Speech API preview:", recErr);
         }
       }
 
-      mediaRecorderRef.current.start();
       setIsRecording(true);
       setRecordingSeconds(0);
       timerRef.current = setInterval(() => {
@@ -233,75 +276,108 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
       }, 1000);
     } catch (err) {
       console.error("Microphone access failed:", err);
-      setError("Microphone access was denied or is not supported. Please type your emergency description.");
+      setError("Microphone access was denied or is not supported. Please allow microphone permissions or enter your emergency details manually.");
     }
   };
 
-  const stopVoiceRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      clearInterval(timerRef.current);
-    }
+  const stopVoiceRecording = async () => {
+    if (!isRecording) return;
+    setIsRecording(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {
-        // Ignore stop error
+      try { recognitionRef.current.stop(); } catch (e) {}
+    }
+
+    try {
+      if (wavRecorderRef.current) {
+        setIsTranscribing(true);
+        setSpeechNotice("Finalizing audio & transcribing speech with AI...");
+        const wavBlob = await wavRecorderRef.current.stop();
+        setVoiceAudioBlob(wavBlob);
+        
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(t => t.stop());
+          mediaStreamRef.current = null;
+        }
+
+        await processVoiceAudio(wavBlob);
       }
+    } catch (err: any) {
+      console.error("Failed to stop WAV recording:", err);
+      setSpeechNotice("Failed to finalize audio recording. Please try recording again.");
+    } finally {
+      setIsTranscribing(false);
     }
   };
 
   const cancelVoiceRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      clearInterval(timerRef.current);
-    }
+    setIsRecording(false);
+    if (timerRef.current) clearInterval(timerRef.current);
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch (e) {}
     }
-    audioChunksRef.current = [];
+    if (wavRecorderRef.current) {
+      wavRecorderRef.current.cancel();
+      wavRecorderRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      mediaStreamRef.current = null;
+    }
     setVoiceAudioBlob(null);
     setVoiceTranscript('');
+    setRawTranscript('');
+    setStructuredExtraction(null);
     setSpeechNotice("Voice recording was cancelled.");
   };
 
   const processVoiceAudio = async (blob: Blob) => {
     if (blob.size < 500) {
-      setSpeechNotice("Recording was too short or empty. Please record again or type details.");
+      setSpeechNotice("Recording was too short or empty. Please record again and speak clearly.");
       return;
     }
 
     try {
       setIsTranscribing(true);
-      const audioFile = new File([blob], `voice_report_${Date.now()}.webm`, { type: 'audio/webm' });
-      const uploadRes = await evidenceApi.upload(audioFile, 'AUDIO');
+      setSpeechNotice("Sending audio to speech recognition engine...");
       
-      if (uploadRes && uploadRes.file_url) {
-        setUploadedEvidence(prev => [...prev, {
-          url: uploadRes.file_url,
-          category: 'AUDIO',
-          filename: uploadRes.filename || 'voice_recording.webm'
-        }]);
-
-        // If backend returned a transcript from Python SpeechRecognition, use it
-        if (uploadRes.transcript && uploadRes.transcript.trim()) {
-          setVoiceTranscript(uploadRes.transcript.trim());
-          setDescription(prev => prev ? prev : uploadRes.transcript.trim());
-          setSpeechNotice("Speech successfully recognized. Please review and edit below if needed.");
-        } else if (uploadRes.transcription_message) {
-          // If no speech heard, inform the user honestly without inventing words!
-          if (!voiceTranscript) {
-            setSpeechNotice(uploadRes.transcription_message);
+      const audioFile = new File([blob], `voice_report_${Date.now()}.wav`, { type: 'audio/wav' });
+      const result = await voiceApi.transcribeAudio(audioFile);
+      
+      if (result && (result.success || result.status === 'SUCCESS')) {
+        const text = (result.transcript || '').trim();
+        if (text) {
+          setRawTranscript(text);
+          setVoiceTranscript(text);
+          setDescription(prev => prev.trim() ? prev : text);
+          setSpeechNotice("Speech successfully recognized! Review and confirm the structured emergency details below.");
+          
+          if (result.extracted_entities) {
+            setStructuredExtraction(result.extracted_entities);
+            applyExtractionToForm(result.extracted_entities);
+          } else {
+            await runStructuredExtraction(text);
           }
+        } else {
+          setSpeechNotice("Audio was received, but no speech was detected. Please speak clearly or type details.");
         }
+
+        if (result.audio_file_url) {
+          setUploadedEvidence(prev => [...prev, {
+            url: result.audio_file_url,
+            category: 'AUDIO',
+            filename: `voice_report_${Date.now()}.wav`
+          }]);
+        }
+      } else {
+        const errorMsg = result?.message || result?.error || "Speech recognition engine could not transcribe audio. Please type your emergency description.";
+        setSpeechNotice(errorMsg);
       }
     } catch (err: any) {
-      console.warn("Audio upload error:", err);
-      if (!voiceTranscript) {
-        setSpeechNotice("Speech recognition service was unreachable. Please type your emergency details directly.");
-      }
+      console.warn("Voice transcription API error:", err);
+      const detail = err?.response?.data?.detail || err?.response?.data?.message || err?.message;
+      setSpeechNotice(detail ? `Speech engine notice: ${detail}` : "Speech recognition service was unreachable. Please type your emergency details directly.");
     } finally {
       setIsTranscribing(false);
     }
@@ -371,7 +447,15 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
         detected_language: 'en',
         location_accuracy_meters: locationAccuracy || undefined,
         is_location_verified: isLocationVerified,
-        evidence_urls: uploadedEvidence
+        evidence_urls: uploadedEvidence,
+        structured_extraction: structuredExtraction ? {
+          ...structuredExtraction,
+          confirmed_transcript: voiceTranscript,
+          incident_type: incidentType,
+          reported_location: locationName,
+          people_affected: unknownCasualties ? "Unknown / Not specified" : String(patientCount),
+          confirmation_status: "CONFIRMED_BY_USER"
+        } : undefined
       };
 
       const data = await incidentsApi.reportEmergency(payload);
@@ -406,6 +490,8 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
     setReceipt(null);
     setDescription('');
     setVoiceTranscript('');
+    setRawTranscript('');
+    setStructuredExtraction(null);
     setUploadedEvidence([]);
     setPatientCount(1);
     setUnknownCasualties(false);
@@ -805,7 +891,18 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
                     <div className="p-3 bg-black/60 border border-gray-700 rounded-lg space-y-2">
                       <div className="flex items-center justify-between text-[10px] text-cyan-400 font-bold uppercase">
                         <span>Captured Speech Transcript (Editable • Unconfirmed)</span>
-                        <span className="text-gray-500">Review & Correct</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => runStructuredExtraction(voiceTranscript, voiceTranscript)}
+                            disabled={isExtracting}
+                            className="px-2 py-0.5 bg-cyan-950 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <RefreshCw className={`w-2.5 h-2.5 ${isExtracting ? 'animate-spin' : ''}`} />
+                            <span>{isExtracting ? 'Extracting...' : 'Re-extract'}</span>
+                          </button>
+                          <span className="text-gray-500">Review & Correct</span>
+                        </div>
                       </div>
                       <textarea
                         rows={2}
@@ -823,11 +920,128 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
                           type="button"
                           onClick={() => {
                             setVoiceTranscript('');
+                            setRawTranscript('');
+                            setStructuredExtraction(null);
                             setVoiceAudioBlob(null);
                           }}
                           className="text-rose-400 hover:text-rose-300 underline cursor-pointer"
                         >
                           Discard Audio Note
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Structured Extraction Review Card */}
+                  {structuredExtraction && (
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-[#0c1424] to-[#070b14] border border-cyan-500/30 space-y-3.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-cyan-400" />
+                          <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                            AI Structured Incident Triage (Separated from Transcript)
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950 border border-cyan-500/40 text-cyan-300">
+                          {structuredExtraction.confirmation_status || 'UNCONFIRMED_PENDING_REVIEW'}
+                        </span>
+                      </div>
+
+                      {/* Summary */}
+                      <div className="p-2.5 rounded-lg bg-black/40 border border-cyan-950 text-xs text-cyan-100 leading-relaxed font-sans">
+                        <span className="text-[10px] text-cyan-400 uppercase font-mono font-bold block mb-0.5">Automated Scene Summary</span>
+                        {structuredExtraction.incident_summary}
+                      </div>
+
+                      {/* Extracted Key Attributes Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                        <div className="p-2.5 rounded-lg bg-black/30 border border-zinc-800">
+                          <span className="text-[10px] text-zinc-400 uppercase font-mono block">Detected Type</span>
+                          <span className="font-bold text-white text-xs">{structuredExtraction.incident_type || 'UNKNOWN'}</span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-black/30 border border-zinc-800">
+                          <span className="text-[10px] text-zinc-400 uppercase font-mono block">Reported Location</span>
+                          <span className="font-bold text-white text-xs truncate block">{structuredExtraction.reported_location || 'Not specified in audio'}</span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-black/30 border border-zinc-800">
+                          <span className="text-[10px] text-zinc-400 uppercase font-mono block">People Affected</span>
+                          <span className="font-bold text-white text-xs">{structuredExtraction.people_affected || 'Unknown'}</span>
+                        </div>
+                      </div>
+
+                      {/* Injuries & Hazards */}
+                      {((structuredExtraction.reported_injuries && structuredExtraction.reported_injuries.length > 0) ||
+                        (structuredExtraction.reported_hazards && structuredExtraction.reported_hazards.length > 0)) && (
+                        <div className="space-y-2">
+                          {structuredExtraction.reported_hazards && structuredExtraction.reported_hazards.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-mono text-amber-400 uppercase font-bold flex items-center gap-1 mr-1">
+                                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                Hazards:
+                              </span>
+                              {structuredExtraction.reported_hazards.map((haz, hIdx) => (
+                                <span key={hIdx} className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-950/60 border border-amber-600/40 text-amber-300">
+                                  {haz}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {structuredExtraction.reported_injuries && structuredExtraction.reported_injuries.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-mono text-rose-400 uppercase font-bold flex items-center gap-1 mr-1">
+                                <AlertCircle className="w-3 h-3 text-rose-400" />
+                                Reported Injuries:
+                              </span>
+                              {structuredExtraction.reported_injuries.map((inj, iIdx) => (
+                                <span key={iIdx} className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-950/60 border border-rose-600/40 text-rose-300">
+                                  {inj}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Assistance Requested */}
+                      {structuredExtraction.assistance_requested && structuredExtraction.assistance_requested.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold mr-1">
+                            Units Needed:
+                          </span>
+                          {structuredExtraction.assistance_requested.map((ast, aIdx) => (
+                            <span key={aIdx} className="px-2 py-0.5 rounded text-[10px] font-medium bg-cyan-950/70 border border-cyan-500/40 text-cyan-200">
+                              {ast}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Unknown Fields / Verification Needed */}
+                      {structuredExtraction.unknown_fields && structuredExtraction.unknown_fields.length > 0 && (
+                        <div className="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30 space-y-1">
+                          <span className="text-[10px] text-amber-400 uppercase font-mono font-bold flex items-center gap-1">
+                            <HelpCircle className="w-3 h-3 text-amber-400" />
+                            Missing Information Requiring Verification:
+                          </span>
+                          <ul className="list-disc list-inside text-[11px] text-amber-200/80 space-y-0.5">
+                            {structuredExtraction.unknown_fields.map((unk, uIdx) => (
+                              <li key={uIdx}>{unk}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-1 border-t border-zinc-800 text-[10px] text-zinc-400">
+                        <span>Extracted triage fields have auto-filled the form below. You can freely edit them before submitting.</span>
+                        <button
+                          type="button"
+                          onClick={() => runStructuredExtraction(voiceTranscript, voiceTranscript)}
+                          disabled={isExtracting}
+                          className="px-2 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${isExtracting ? 'animate-spin' : ''}`} />
+                          <span>{isExtracting ? 'Re-extracting...' : 'Re-extract Details'}</span>
                         </button>
                       </div>
                     </div>

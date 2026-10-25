@@ -91,6 +91,7 @@ class Incident(Base):
     # Evidence & Voice Recording
     voice_transcript = Column(Text, nullable=True)
     detected_language = Column(String(32), nullable=True)
+    structured_extraction_json = Column(JSON, nullable=True)
     evidence_urls_json = Column(JSON, nullable=True)  # [{url, type, name, uploaded_at}]
     timeline_events_json = Column(JSON, nullable=True)  # Fast cache of timeline events
     linked_duplicate_id = Column(String(64), nullable=True, index=True)
