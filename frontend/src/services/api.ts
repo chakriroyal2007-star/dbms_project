@@ -46,6 +46,18 @@ export const authApi = {
     const res = await api.delete(`/auth/users/${userId}`);
     return res.data;
   },
+  register: async (data: { username: string; email: string; password: string; full_name: string; role?: string }) => {
+    const res = await api.post('/auth/register', data);
+    if (res.data?.access_token) {
+      localStorage.setItem('tera_token', res.data.access_token);
+      localStorage.setItem('tera_user', JSON.stringify(res.data));
+    }
+    return res.data;
+  },
+  logout: () => {
+    localStorage.removeItem('tera_token');
+    localStorage.removeItem('tera_user');
+  },
   getAuditLogs: async (limit: number = 50) => {
     const res = await api.get(`/auth/audit-logs?limit=${limit}`);
     return res.data;
@@ -122,6 +134,12 @@ export const incidentsApi = {
     estimated_patient_count: number;
     reporter_name?: string;
     reporter_contact?: string;
+    reporter_consent?: boolean;
+    voice_transcript?: string;
+    detected_language?: string;
+    location_accuracy_meters?: number;
+    is_location_verified?: boolean;
+    evidence_urls?: any[];
   }) => {
     const res = await api.post('/incidents/report', data);
     return res.data;
@@ -150,6 +168,14 @@ export const incidentsApi = {
   },
   update: async (incidentId: string, data: any) => {
     const res = await api.patch(`/incidents/${incidentId}`, data);
+    return res.data;
+  },
+  trackByCode: async (trackingCode: string) => {
+    const res = await api.get(`/incidents/track/${encodeURIComponent(trackingCode.trim())}`);
+    return res.data;
+  },
+  linkDuplicate: async (incidentId: string, masterIncidentId: string) => {
+    const res = await api.post(`/incidents/${incidentId}/link-duplicate`, null, { params: { master_incident_id: masterIncidentId } });
     return res.data;
   },
   delete: async (incidentId: string) => {
@@ -284,6 +310,42 @@ export const explorerApi = {
   },
   getTableData: async (tableName: string, params?: { limit?: number; offset?: number; search?: string }) => {
     const res = await api.get(`/explorer/table/${tableName}`, { params });
+    return res.data;
+  }
+};
+
+export const evidenceApi = {
+  upload: async (file: File, mediaCategory: string = 'PHOTO', incidentId?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('media_category', mediaCategory);
+    if (incidentId) formData.append('incident_id', incidentId);
+    const res = await api.post('/evidence/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return res.data;
+  }
+};
+
+export const coordinationApi = {
+  getResponderAssignments: async () => {
+    const res = await api.get('/coordination/responder/assignments');
+    return res.data;
+  },
+  updateAssignmentStatus: async (assignmentId: string, statusUpdate: string, declineReason?: string, notes?: string) => {
+    const res = await api.post(`/coordination/responder/assignments/${assignmentId}/update-status`, null, {
+      params: { status_update: statusUpdate, decline_reason: declineReason, notes }
+    });
+    return res.data;
+  },
+  getHospitalProfile: async () => {
+    const res = await api.get('/coordination/hospital/profile');
+    return res.data;
+  },
+  updateHospitalCapacity: async (icu: number, er: number, gen: number, status?: string) => {
+    const res = await api.post('/coordination/hospital/capacity', null, {
+      params: { icu_available: icu, emergency_available: er, general_available: gen, hospital_status: status }
+    });
     return res.data;
   }
 };

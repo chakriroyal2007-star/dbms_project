@@ -17,7 +17,11 @@ def seed_database(db: Session, force_reset: bool = False):
         return {"status": "already_seeded", "message": "Database already populated."}
 
     # If force reset, clear in order
+    from app.models.models import Organization, ResponderAssignment, IncidentTimelineEvent
+
     if force_reset:
+        db.query(ResponderAssignment).delete()
+        db.query(IncidentTimelineEvent).delete()
         db.query(HospitalAssignment).delete()
         db.query(ResourceAllocation).delete()
         db.query(Patient).delete()
@@ -34,6 +38,7 @@ def seed_database(db: Session, force_reset: bool = False):
         db.query(Ambulance).delete()
         db.query(Hospital).delete()
         db.query(UserAccount).delete()
+        db.query(Organization).delete()
         db.commit()
 
     print("Initializing TERA Seed Data...")
@@ -46,7 +51,31 @@ def seed_database(db: Session, force_reset: bool = False):
     t_minus_15m = base_time - datetime.timedelta(minutes=15)
     t_plus_30m = base_time + datetime.timedelta(minutes=30)
 
-    # 1. User Accounts
+    # 0. Organizations
+    if not db.query(Organization).filter(Organization.organization_id == "ORG_SVRR_TRAUMA").first():
+        org_hosp = Organization(
+            organization_id="ORG_SVRR_TRAUMA",
+            name="SVRR Government General & Trauma Center",
+            org_type="HOSPITAL",
+            contact_email="emergency@svrr.gov.in",
+            contact_phone="+91-877-2287777",
+            is_active=True
+        )
+        db.add(org_hosp)
+
+    if not db.query(Organization).filter(Organization.organization_id == "ORG_EMRI_108").first():
+        org_ems = Organization(
+            organization_id="ORG_EMRI_108",
+            name="Andhra Pradesh 108 Emergency Response Service",
+            org_type="AMBULANCE_PROVIDER",
+            contact_email="dispatch@emri108.org",
+            contact_phone="108",
+            is_active=True
+        )
+        db.add(org_ems)
+    db.flush()
+
+    # 1. User Accounts (Complete 6-Role Matrix)
     users = [
         UserAccount(
             user_id="USR_ADMIN_01",
@@ -65,6 +94,28 @@ def seed_database(db: Session, force_reset: bool = False):
             hashed_password=get_password_hash("operator123"),
             role="CONTROL_OPERATOR",
             full_name="Senior Triage Dispatcher",
+            is_active=True,
+            created_at=t_minus_2h
+        ),
+        UserAccount(
+            user_id="USR_HOSPITAL_01",
+            username="hospital_coord",
+            email="coordinator@svrr.gov.in",
+            hashed_password=get_password_hash("hospital123"),
+            role="HOSPITAL_COORDINATOR",
+            organization_id="HOSP_01",
+            full_name="Dr. Priya Sharma (Trauma Lead)",
+            is_active=True,
+            created_at=t_minus_2h
+        ),
+        UserAccount(
+            user_id="USR_RESPONDER_01",
+            username="responder",
+            email="responder@emri108.org",
+            hashed_password=get_password_hash("responder123"),
+            role="FIELD_RESPONDER",
+            organization_id="ORG_EMRI_108",
+            full_name="Paramedic Lead Rajesh Kumar",
             is_active=True,
             created_at=t_minus_2h
         ),
@@ -499,7 +550,11 @@ def seed_database(db: Session, force_reset: bool = False):
     for inc_id, inc_type, desc, sev, lat, lng, loc, locality, landmark, occ_time, p_count, status_code in scenario_incidents:
         inc_objects.append(Incident(
             incident_id=inc_id,
+            tracking_code=f"TRK-260912-{inc_id[-4:]}",
             reporter_id="USR_REPORTER_01",
+            reporter_name="Citizen Emergency Informant",
+            reporter_phone="+91-9876543210",
+            reporter_consent=True,
             incident_type=inc_type,
             description=desc,
             severity=sev,

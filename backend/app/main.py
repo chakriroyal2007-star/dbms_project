@@ -6,7 +6,8 @@ from app.services.seed_service import seed_database
 from app.api import (
     auth, dashboard, incidents, ambulances, hospitals,
     resources, roads, temporal, allocation, simulation,
-    analytics, performance, explorer, scenarios, sql_playground
+    analytics, performance, explorer, scenarios, sql_playground,
+    evidence, coordination
 )
 
 # Initialize database schema tables
@@ -49,6 +50,8 @@ app.include_router(performance.router, prefix=settings.API_V1_STR)
 app.include_router(explorer.router, prefix=settings.API_V1_STR)
 app.include_router(scenarios.router, prefix=settings.API_V1_STR)
 app.include_router(sql_playground.router, prefix=settings.API_V1_STR)
+app.include_router(evidence.router, prefix=settings.API_V1_STR)
+app.include_router(coordination.router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 def root():

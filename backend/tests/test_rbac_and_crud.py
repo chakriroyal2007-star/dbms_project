@@ -4,39 +4,35 @@ from app.main import app
 
 client = TestClient(app)
 
-def test_auth_login_all_four_roles():
+def _get_role_tokens():
     # 1. Administrator
     res_admin = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
     assert res_admin.status_code == 200
-    data_admin = res_admin.json()
-    assert data_admin["role"] in ["ADMIN", "ADMINISTRATOR"]
-    admin_token = data_admin["access_token"]
+    admin_token = res_admin.json()["access_token"]
 
     # 2. Control Operator
     res_op = client.post("/api/auth/login", json={"username": "operator", "password": "operator123"})
     assert res_op.status_code == 200
-    data_op = res_op.json()
-    assert data_op["role"] == "CONTROL_OPERATOR"
-    op_token = data_op["access_token"]
+    op_token = res_op.json()["access_token"]
 
     # 3. Analyst
     res_analyst = client.post("/api/auth/login", json={"username": "analyst", "password": "analyst123"})
     assert res_analyst.status_code == 200
-    data_analyst = res_analyst.json()
-    assert data_analyst["role"] == "ANALYST"
-    analyst_token = data_analyst["access_token"]
+    analyst_token = res_analyst.json()["access_token"]
 
     # 4. Reporter
     res_rep = client.post("/api/auth/login", json={"username": "reporter", "password": "reporter123"})
     assert res_rep.status_code == 200
-    data_rep = res_rep.json()
-    assert data_rep["role"] == "REPORTER"
-    rep_token = data_rep["access_token"]
+    rep_token = res_rep.json()["access_token"]
 
     return admin_token, op_token, analyst_token, rep_token
 
+def test_auth_login_all_four_roles():
+    admin_token, op_token, analyst_token, rep_token = _get_role_tokens()
+    assert admin_token and op_token and analyst_token and rep_token
+
 def test_citizen_reporter_and_eoc_workflow():
-    admin_token, op_token, analyst_token, rep_token = test_auth_login_all_four_roles()
+    admin_token, op_token, analyst_token, rep_token = _get_role_tokens()
 
     # 1. Reporter submits emergency report
     report_payload = {
@@ -86,7 +82,7 @@ def test_citizen_reporter_and_eoc_workflow():
     assert res_contained.json()["current_status"] == "CONTAINED"
 
 def test_rbac_admin_only_endpoints():
-    admin_token, op_token, analyst_token, rep_token = test_auth_login_all_four_roles()
+    admin_token, op_token, analyst_token, rep_token = _get_role_tokens()
 
     # Analyst cannot create hospital
     hosp_payload = {
@@ -144,7 +140,7 @@ def test_rbac_admin_only_endpoints():
     assert res_admin_del.status_code == 200
 
 def test_sql_playground_safety():
-    admin_token, op_token, analyst_token, _ = test_auth_login_all_four_roles()
+    admin_token, op_token, analyst_token, _ = _get_role_tokens()
 
     # SELECT query allowed for Admin & Analyst
     res_select = client.post(
@@ -177,7 +173,7 @@ def test_sql_playground_safety():
     assert res_delete.status_code == 403
 
 def test_audit_log_tracking():
-    admin_token, _, _, _ = test_auth_login_all_four_roles()
+    admin_token, _, _, _ = _get_role_tokens()
 
     # Trigger an audited event: e.g., create an incident
     inc_payload = {

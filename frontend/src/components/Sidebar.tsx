@@ -230,7 +230,123 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user }
     );
   }
 
-  // 4. ADMINISTRATOR ROLE: Full Master Control Center & User Management
+  // 4. HOSPITAL COORDINATOR ROLE (TERA Network)
+  if (role === 'HOSPITAL_COORDINATOR') {
+    const hospNav = [
+      { id: 'hospital_coord', label: 'Trauma & Bed Management', icon: Building2, badge: 'Live Bed Matrix' },
+      { id: 'resources', label: 'Critical Medical Supplies', icon: Package },
+      { id: 'ambulances', label: 'Stationed Ambulance Units', icon: Truck },
+      { id: 'incidents', label: 'Incoming Triage Requests', icon: AlertTriangle },
+    ];
+
+    return (
+      <aside className="w-60 bg-[#121215] border-r border-zinc-800/80 flex flex-col justify-between p-3 select-none flex-shrink-0 overflow-y-auto font-mono text-zinc-300">
+        <div>
+          <div className="mb-4">
+            <div className="px-3 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+              Healthcare Network
+            </div>
+            <div className="space-y-0.5">
+              {hospNav.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onSelectTab(item.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-zinc-800 text-zinc-100 font-bold shadow-sm'
+                        : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2.5 truncate">
+                      <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                    {item.badge && (
+                      <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80 text-[11px] text-zinc-400 space-y-1">
+          <div className="flex items-center justify-between font-bold text-emerald-400">
+            <span>HOSPITAL COORDINATOR</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          </div>
+          <p className="text-[10px] text-zinc-500 font-sans">
+            Authoritative bed availability updates with multi-tenant data isolation.
+          </p>
+        </div>
+      </aside>
+    );
+  }
+
+  // 5. FIELD RESPONDER ROLE (TERA Network)
+  if (role === 'FIELD_RESPONDER') {
+    const responderNav = [
+      { id: 'field_responder', label: 'Active Dispatches & GPS', icon: Truck, badge: 'On-Call' },
+      { id: 'incidents', label: 'Assigned Incident Details', icon: AlertTriangle },
+    ];
+
+    return (
+      <aside className="w-60 bg-[#121215] border-r border-zinc-800/80 flex flex-col justify-between p-3 select-none flex-shrink-0 overflow-y-auto font-mono text-zinc-300">
+        <div>
+          <div className="mb-4">
+            <div className="px-3 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
+              Field Operations
+            </div>
+            <div className="space-y-0.5">
+              {responderNav.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onSelectTab(item.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-zinc-800 text-zinc-100 font-bold shadow-sm'
+                        : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2.5 truncate">
+                      <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-amber-400' : 'text-zinc-500'}`} />
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                    {item.badge && (
+                      <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80 text-[11px] text-zinc-400 space-y-1">
+          <div className="flex items-center justify-between font-bold text-amber-400">
+            <span>FIELD RESPONDER</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+          </div>
+          <p className="text-[10px] text-zinc-500 font-sans">
+            Real-time en-route and on-scene milestone tracking for assigned units.
+          </p>
+        </div>
+      </aside>
+    );
+  }
+
+  // 6. ADMINISTRATOR ROLE: Full Master Control Center & User Management
   const adminGovernance = [
     { id: 'admin_users', label: 'User Accounts & Roles', icon: ShieldCheck, badge: 'Admin' },
     { id: 'dbms_architecture', label: 'DBMS Architecture (18 Tables)', icon: Layers, badge: '3NF/BCNF' },

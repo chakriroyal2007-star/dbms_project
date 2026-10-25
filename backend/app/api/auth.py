@@ -134,6 +134,53 @@ def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         "email": user.email
     }
 
+@router.post("/register", response_model=Token)
+def register_account(data: UserCreate, db: Session = Depends(get_db)):
+    """
+    Public registration endpoint.
+    - Citizens register as 'REPORTER' role by default.
+    - Operational roles require approval or can register with 'pending' status.
+    """
+    existing = db.query(UserAccount).filter(
+        (UserAccount.username == data.username) | (UserAccount.email == data.email)
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username or email is already registered."
+        )
+
+    requested_role = data.role.upper() if data.role else "REPORTER"
+    # Public self-registration only grants REPORTER automatically; others require admin approval
+    assigned_role = requested_role if requested_role == "REPORTER" else "REPORTER"
+
+    new_id = f"USR_{uuid.uuid4().hex[:8].upper()}"
+    new_user = UserAccount(
+        user_id=new_id,
+        username=data.username.strip(),
+        email=data.email.strip().lower(),
+        hashed_password=get_password_hash(data.password),
+        role=assigned_role,
+        full_name=data.full_name.strip(),
+        is_active=True,
+        created_at=datetime.datetime.utcnow()
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    access_token = create_access_token(
+        data={"sub": new_user.username, "role": new_user.role, "user_id": new_user.user_id}
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "role": new_user.role,
+        "username": new_user.username,
+        "full_name": new_user.full_name,
+        "email": new_user.email
+    }
+
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: Optional[UserAccount] = Depends(get_current_user)):
     if not current_user:

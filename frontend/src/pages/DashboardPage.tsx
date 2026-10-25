@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   AlertTriangle, Users, Truck, Bed, ShieldAlert, 
   Activity, RefreshCw, AlertCircle, ArrowUpRight, Flame, 
-  Radio, CheckCircle2, ArrowRight
+  Radio, CheckCircle2, ArrowRight, Eye, Link2, X, Camera, Mic, FileText
 } from 'lucide-react';
 import api, { incidentsApi } from '../services/api';
 import { EmergencyMap } from '../components/EmergencyMap';
@@ -30,6 +30,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [alerts, setAlerts] = useState<ResourceAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  // Operator Detailed Incident Inspection Modal
+  const [reviewIncident, setReviewIncident] = useState<Incident | null>(null);
+  const [linkingMasterId, setLinkingMasterId] = useState<string>('');
+  const [linkingLoading, setLinkingLoading] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
@@ -91,6 +96,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Failed to cancel incident.');
+    }
+  };
+
+  const handleLinkDuplicate = async (incidentId: string, masterId: string) => {
+    if (!masterId.trim()) return;
+    try {
+      setLinkingLoading(true);
+      await incidentsApi.linkDuplicate(incidentId, masterId.trim().toUpperCase());
+      setActionSuccess(`Linked incident ${incidentId} as duplicate of master ${masterId}!`);
+      setReviewIncident(null);
+      fetchDashboardData();
+      setTimeout(() => setActionSuccess(null), 4000);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Failed to link duplicate incident.');
+    } finally {
+      setLinkingLoading(false);
     }
   };
 
@@ -160,6 +181,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <div className="text-[10px] text-zinc-500">{inc.estimated_patient_count} Patients Reported</div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => setReviewIncident(inc)}
+                    className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-cyan-400 text-[10px] font-bold rounded-lg border border-zinc-700 transition-all cursor-pointer"
+                    title="Inspect incident details & voice transcript"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     onClick={() => handleVerifyIncident(inc.incident_id)}
                     className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-bold rounded-lg border border-zinc-700 transition-all cursor-pointer whitespace-nowrap"
@@ -359,23 +387,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       <StatusBadge status={inc.status} size="sm" />
                     </td>
                     <td className="p-2.5 text-right">
-                      {inc.status === 'RECEIVED' ? (
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
-                          onClick={() => handleVerifyIncident(inc.incident_id)}
-                          className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-[10px] transition-all cursor-pointer border border-zinc-700"
+                          onClick={() => setReviewIncident(inc)}
+                          className="p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-cyan-300 transition-all cursor-pointer border border-zinc-700"
+                          title="Inspect details, transcript & duplicate linking"
                         >
-                          Verify
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
-                      ) : (
-                        onSelectIncidentForAllocation && (
+                        {inc.status === 'RECEIVED' ? (
                           <button
-                            onClick={() => onSelectIncidentForAllocation(inc.incident_id)}
-                            className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-[10px] transition-all shadow cursor-pointer"
+                            onClick={() => handleVerifyIncident(inc.incident_id)}
+                            className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-[10px] transition-all cursor-pointer border border-zinc-700"
                           >
-                            Allocate
+                            Verify
                           </button>
-                        )
-                      )}
+                        ) : (
+                          onSelectIncidentForAllocation && (
+                            <button
+                              onClick={() => onSelectIncidentForAllocation(inc.incident_id)}
+                              className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-[10px] transition-all shadow cursor-pointer"
+                            >
+                              Allocate
+                            </button>
+                          )
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -443,6 +480,169 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
       </div>
+      {/* Operator Incident Detailed Inspection & Duplicate Linking Modal */}
+      {reviewIncident && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#0E1524] border border-[#1F293D] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-6 space-y-5 text-xs font-mono">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-cyan-400 font-bold text-sm">{reviewIncident.incident_id}</span>
+                  <StatusBadge status={reviewIncident.status} size="sm" />
+                  <StatusBadge status={reviewIncident.severity} size="sm" showDot={false} />
+                </div>
+                <div className="text-[11px] text-gray-400 font-sans mt-0.5">{reviewIncident.location_name}</div>
+              </div>
+
+              <button
+                onClick={() => setReviewIncident(null)}
+                className="p-1.5 rounded-lg bg-gray-800 text-gray-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Core Details Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-2.5 bg-black/40 rounded-xl border border-gray-800">
+                <span className="text-[10px] text-gray-500 block">TYPE</span>
+                <span className="font-bold text-gray-200">{reviewIncident.incident_type.replace(/_/g, ' ')}</span>
+              </div>
+              <div className="p-2.5 bg-black/40 rounded-xl border border-gray-800">
+                <span className="text-[10px] text-gray-500 block">PATIENTS</span>
+                <span className="font-bold text-amber-400">{reviewIncident.estimated_patient_count} Reported</span>
+              </div>
+              <div className="p-2.5 bg-black/40 rounded-xl border border-gray-800">
+                <span className="text-[10px] text-gray-500 block">TRACKING CODE</span>
+                <span className="font-bold text-cyan-300">{reviewIncident.tracking_code || 'N/A'}</span>
+              </div>
+              <div className="p-2.5 bg-black/40 rounded-xl border border-gray-800">
+                <span className="text-[10px] text-gray-500 block">COORDINATES</span>
+                <span className="font-bold text-gray-300">{reviewIncident.latitude.toFixed(4)}, {reviewIncident.longitude.toFixed(4)}</span>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-1">
+              <span className="text-[10px] text-gray-400 uppercase font-bold">Field Description</span>
+              <div className="p-3 bg-black/50 border border-gray-800 rounded-xl text-gray-300 font-sans text-xs leading-relaxed">
+                {reviewIncident.description}
+              </div>
+            </div>
+
+            {/* Voice AI Transcript Preview (if available) */}
+            {reviewIncident.voice_transcript && (
+              <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/30 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-cyan-400 text-[11px] font-bold">
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>Verified Voice Speech-to-Text Transcript</span>
+                </div>
+                <div className="text-xs text-gray-200 font-sans italic">
+                  "{reviewIncident.voice_transcript}"
+                </div>
+              </div>
+            )}
+
+            {/* Attached Evidence Preview */}
+            {((reviewIncident.evidence_urls && reviewIncident.evidence_urls.length > 0) || (reviewIncident.evidence_urls_json && reviewIncident.evidence_urls_json.length > 0)) && (
+              <div className="space-y-2">
+                <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Uploaded Scene Evidence ({(reviewIncident.evidence_urls || reviewIncident.evidence_urls_json || []).length})</span>
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {(reviewIncident.evidence_urls || reviewIncident.evidence_urls_json || []).map((ev: any, idx: number) => (
+                    <a
+                      key={idx}
+                      href={ev.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 bg-black/60 border border-gray-700 rounded-lg text-cyan-300 hover:text-cyan-200 text-[11px] flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>[{ev.category || ev.media_category || 'EVIDENCE'}] View Attachment #{idx + 1}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Duplicate Incident Linking Section */}
+            <div className="p-4 rounded-xl bg-black/40 border border-gray-800 space-y-2">
+              <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1.5">
+                <Link2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>Link Duplicate Incident to Master</span>
+              </span>
+              <p className="text-[11px] text-gray-500 font-sans">
+                Preserve this report for audit logs while consolidating response under an existing master incident.
+              </p>
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="text"
+                  value={linkingMasterId}
+                  onChange={(e) => setLinkingMasterId(e.target.value.toUpperCase())}
+                  placeholder="Master Incident ID (e.g. INC_FIELD_1042)..."
+                  className="bg-black/60 border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 text-xs focus:outline-none focus:border-amber-500 font-mono flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleLinkDuplicate(reviewIncident.incident_id, linkingMasterId)}
+                  disabled={linkingLoading || !linkingMasterId.trim()}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-black font-bold text-xs rounded-lg cursor-pointer disabled:opacity-50 transition-all"
+                >
+                  {linkingLoading ? 'Linking...' : 'Link Duplicate'}
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Operator Status Action Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-800">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleVerifyIncident(reviewIncident.incident_id);
+                    setReviewIncident(null);
+                  }}
+                  className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold rounded-lg border border-zinc-700 cursor-pointer"
+                >
+                  Mark Verified
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleActivateIncident(reviewIncident.incident_id);
+                    setReviewIncident(null);
+                  }}
+                  className="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg cursor-pointer"
+                >
+                  Activate & Dispatch
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleRejectIncident(reviewIncident.incident_id);
+                    setReviewIncident(null);
+                  }}
+                  className="px-3 py-2 bg-rose-950/70 hover:bg-rose-900 text-rose-300 font-bold rounded-lg border border-rose-800/40 cursor-pointer"
+                >
+                  Reject
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setReviewIncident(null)}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold rounded-lg cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };

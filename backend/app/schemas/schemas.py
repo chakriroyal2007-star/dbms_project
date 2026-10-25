@@ -193,8 +193,14 @@ class EmergencyReportRequest(BaseModel):
     landmark: Optional[str] = None
     location_name: str
     estimated_patient_count: int = 1
-    reporter_name: Optional[str] = "Field Informant"
+    reporter_name: Optional[str] = None
     reporter_contact: Optional[str] = None
+    reporter_consent: bool = True
+    voice_transcript: Optional[str] = None
+    detected_language: Optional[str] = "en"
+    location_accuracy_meters: Optional[float] = None
+    is_location_verified: bool = False
+    evidence_urls: Optional[List[Dict[str, Any]]] = None
 
 class EmergencyReportReceipt(BaseModel):
     incident_id: str
@@ -214,7 +220,9 @@ class EmergencyReportReceipt(BaseModel):
     status: str = "RECEIVED"
     reporter_id: Optional[str] = None
     tracking_code: str
+    tracking_token: str
     message: str
+    timeline_events: List[Dict[str, Any]] = []
 
 class IncidentUpdate(BaseModel):
     incident_type: Optional[str] = None
@@ -229,15 +237,22 @@ class IncidentUpdate(BaseModel):
     landmark: Optional[str] = None
     location_name: Optional[str] = None
     estimated_patient_count: Optional[int] = None
+    linked_duplicate_id: Optional[str] = None
+    resolution_notes: Optional[str] = None
 
 class IncidentResponse(BaseModel):
     incident_id: str
+    tracking_code: Optional[str] = None
     reporter_id: Optional[str] = None
+    reporter_name: Optional[str] = None
+    reporter_phone: Optional[str] = None
     incident_type: str
     description: str
     severity: str
     latitude: float
     longitude: float
+    location_accuracy_meters: Optional[float] = None
+    is_location_verified: bool = False
     country: str = "India"
     state: str = "Andhra Pradesh"
     district: str = "Tirupati"
@@ -249,11 +264,49 @@ class IncidentResponse(BaseModel):
     reported_at: datetime.datetime
     status: str
     estimated_patient_count: int
+    voice_transcript: Optional[str] = None
+    detected_language: Optional[str] = None
+    evidence_urls_json: Optional[List[Dict[str, Any]]] = None
+    timeline_events_json: Optional[List[Dict[str, Any]]] = None
+    linked_duplicate_id: Optional[str] = None
+    resolution_notes: Optional[str] = None
     patients: List[PatientResponse] = []
     created_at: datetime.datetime
     updated_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
+class PublicTrackIncidentResponse(BaseModel):
+    tracking_code: str
+    incident_id: str
+    incident_type: str
+    location_name: str
+    city: str
+    severity: str
+    status: str
+    reported_at: datetime.datetime
+    updated_at: datetime.datetime
+    estimated_patient_count: int
+    timeline: List[Dict[str, Any]] = []
+    first_aid_guidance: List[str] = []
+
+class TimelineEventCreate(BaseModel):
+    status: str
+    title: str
+    description: str
+    actor_name: Optional[str] = None
+    actor_role: Optional[str] = None
+
+class ResponderAssignmentCreate(BaseModel):
+    incident_id: str
+    responder_user_id: str
+    resource_id: Optional[str] = None
+    notes: Optional[str] = None
+
+class ResponderAssignmentUpdate(BaseModel):
+    status: str  # ACKNOWLEDGED, DECLINED, EN_ROUTE, ARRIVED, COMPLETED
+    decline_reason: Optional[str] = None
+    notes: Optional[str] = None
 
 # ------------------------------------------------------------------------------
 # Ambulance Schemas

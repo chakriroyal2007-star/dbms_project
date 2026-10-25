@@ -45,17 +45,20 @@ export const Header: React.FC<HeaderProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  const handleRoleSwitch = async (roleName: 'REPORTER' | 'CONTROL_OPERATOR' | 'ADMINISTRATOR' | 'ANALYST') => {
+  const handleRoleSwitch = async (roleName: 'REPORTER' | 'CONTROL_OPERATOR' | 'HOSPITAL_COORDINATOR' | 'FIELD_RESPONDER' | 'ADMINISTRATOR' | 'ANALYST') => {
     setSwitchingRole(true);
     try {
-      const creds = {
+      const creds: Record<string, { u: string; p: string }> = {
         REPORTER: { u: 'reporter', p: 'reporter123' },
         CONTROL_OPERATOR: { u: 'operator', p: 'operator123' },
+        HOSPITAL_COORDINATOR: { u: 'hospital_coord', p: 'hospital123' },
+        FIELD_RESPONDER: { u: 'responder', p: 'responder123' },
         ADMINISTRATOR: { u: 'admin', p: 'admin123' },
         ANALYST: { u: 'analyst', p: 'analyst123' }
-      }[roleName];
+      };
 
-      const authData = await authApi.login(creds.u, creds.p);
+      const c = creds[roleName];
+      const authData = await authApi.login(c.u, c.p);
       if (onUserChange) {
         onUserChange({
           username: authData.username,
@@ -64,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
           access_token: authData.access_token
         });
       }
-      setToastMessage(`Switched Role to: ${roleName}`);
+      setToastMessage(`Switched active profile to: ${roleName}`);
       setTimeout(() => setToastMessage(null), 3500);
     } catch (err) {
       console.error('Failed to switch role:', err);
@@ -121,15 +124,17 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Quick Role Switcher + Notification Bell + Profile */}
         <div className="flex items-center space-x-2 sm:space-x-3">
-          {/* 4 Clean Minimal Role Pills */}
-          <div className="flex items-center bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px]">
-            {(['REPORTER', 'CONTROL_OPERATOR', 'ADMINISTRATOR', 'ANALYST'] as const).map((roleKey) => {
+          {/* 6 Clean Minimal Role Pills */}
+          <div className="hidden xl:flex items-center bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px]">
+            {(['REPORTER', 'CONTROL_OPERATOR', 'HOSPITAL_COORDINATOR', 'FIELD_RESPONDER', 'ANALYST', 'ADMINISTRATOR'] as const).map((roleKey) => {
               const isActive = userRole === roleKey || (roleKey === 'ADMINISTRATOR' && userRole === 'ADMIN');
               const shortLabels: Record<string, string> = {
                 REPORTER: 'Reporter',
                 CONTROL_OPERATOR: 'Operator',
-                ADMINISTRATOR: 'Admin',
-                ANALYST: 'Analyst'
+                HOSPITAL_COORDINATOR: 'Hospital',
+                FIELD_RESPONDER: 'Responder',
+                ANALYST: 'Analyst',
+                ADMINISTRATOR: 'Admin'
               };
 
               return (
@@ -137,7 +142,7 @@ export const Header: React.FC<HeaderProps> = ({
                   key={roleKey}
                   onClick={() => handleRoleSwitch(roleKey)}
                   disabled={switchingRole}
-                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-medium ${
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer font-medium ${
                     isActive
                       ? 'bg-zinc-100 text-zinc-900 font-bold shadow-sm'
                       : 'text-zinc-400 hover:text-zinc-200'

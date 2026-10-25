@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { LandingPage } from './pages/LandingPage';
+import React, { useState } from 'react';
+import { WelcomeRoleSelectionPage } from './pages/WelcomeRoleSelectionPage';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { DashboardPage } from './pages/DashboardPage';
@@ -12,74 +12,74 @@ import { ExplorerPage } from './pages/ExplorerPage';
 import { AdminUserManagement } from './pages/AdminUserManagement';
 import { SqlPlaygroundPage } from './pages/SqlPlaygroundPage';
 import { ReporterPortalPage } from './pages/ReporterPortalPage';
+import { HospitalCoordinatorPage } from './pages/HospitalCoordinatorPage';
+import { FieldResponderPage } from './pages/FieldResponderPage';
 import { DBMSArchitecturePage } from './pages/DBMSArchitecturePage';
+import { PublicTrackerModal } from './components/PublicTrackerModal';
 import { 
   IncidentsView, AmbulancesView, HospitalsView, 
   ResourcesView, RoadsView, TeamsView, SettingsView 
 } from './pages/EntitiesPages';
-import { User } from './types';
+import { User, RoleType, PublicTrackedIncident } from './types';
 import { authApi } from './services/api';
 
 export const App: React.FC = () => {
-  const [view, setView] = useState<'landing' | 'app'>('landing');
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [selectedIncidentForAllocation, setSelectedIncidentForAllocation] = useState<string | null>(null);
-  
-  // Default Initial User (Administrator)
+  // Session User State: No hardcoded demo login. Reads saved session or defaults to null
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('tera_user');
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { /* ignore */ }
     }
-    return {
-      username: 'admin',
-      role: 'ADMINISTRATOR',
-      full_name: 'EOC Chief Commander',
-      access_token: 'demo_token_admin'
-    };
+    return null;
   });
 
-  // Auto-login on mount to initialize token
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const u = user?.username || 'admin';
-        const p = u === 'admin' ? 'admin123' : (u === 'operator' ? 'operator123' : (u === 'reporter' ? 'reporter123' : 'analyst123'));
-        const authData = await authApi.login(u, p);
-        setUser({
-          username: authData.username,
-          role: authData.role,
-          full_name: authData.full_name,
-          access_token: authData.access_token
-        });
-      } catch (err) {
-        console.warn('Initial auto-login error (backend may be spinning up):', err);
-      }
-    };
-    initAuth();
-  }, []);
+  const [view, setView] = useState<'welcome' | 'app'>(() => {
+    return localStorage.getItem('tera_user') ? 'app' : 'welcome';
+  });
+  
+  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [selectedIncidentForAllocation, setSelectedIncidentForAllocation] = useState<string | null>(null);
+  const [trackedIncidentModal, setTrackedIncidentModal] = useState<PublicTrackedIncident | null>(null);
 
-  const handleStartTera = () => {
+  const handleLoginSuccess = (authenticatedUser: User, targetRole: RoleType) => {
+    setUser(authenticatedUser);
     setView('app');
-    if (activeTab === 'reporter_portal') {
+
+    // Route to appropriate role-specific default view
+    if (targetRole === 'REPORTER') {
+      setActiveTab('reporter_portal');
+    } else if (targetRole === 'CONTROL_OPERATOR') {
+      setActiveTab('dashboard');
+    } else if (targetRole === 'HOSPITAL_COORDINATOR') {
+      setActiveTab('hospital_coord');
+    } else if (targetRole === 'FIELD_RESPONDER') {
+      setActiveTab('field_responder');
+    } else if (targetRole === 'ANALYST') {
+      setActiveTab('analytics');
+    } else if (targetRole === 'ADMINISTRATOR' || targetRole === 'ADMIN') {
+      setActiveTab('admin_users');
+    } else {
       setActiveTab('dashboard');
     }
   };
 
-  const handleReportEmergencyDirect = async () => {
+  const handleGuestEmergencyReport = () => {
+    // Guest reporting bypass: No registration or credentials required
+    setUser({
+      username: 'guest_citizen',
+      role: 'REPORTER',
+      full_name: 'Bystander Informant (Guest)',
+      access_token: ''
+    });
     setView('app');
     setActiveTab('reporter_portal');
-    try {
-      const authData = await authApi.login('reporter', 'reporter123');
-      setUser({
-        username: authData.username,
-        role: authData.role,
-        full_name: authData.full_name,
-        access_token: authData.access_token
-      });
-    } catch (e) {
-      console.warn('Direct reporter login error:', e);
-    }
+  };
+
+  const handleLogout = () => {
+    authApi.logout();
+    setUser(null);
+    setView('welcome');
+    setActiveTab('dashboard');
   };
 
   const handleSelectIncidentForAllocation = (incidentId: string) => {
@@ -87,28 +87,26 @@ export const App: React.FC = () => {
     setActiveTab('allocation');
   };
 
-  const handleLogout = () => {
-    setView('landing');
-  };
-
-  const handleReloadScenario = () => {
-    setActiveTab('dashboard');
-  };
-
-  if (view === 'landing') {
+  if (view === 'welcome') {
     return (
-      <LandingPage
-        onStart={handleStartTera}
-        onReportEmergency={handleReportEmergencyDirect}
-        onExplore={() => {
-          setView('app');
-          setActiveTab('explorer');
-        }}
-        onViewArchitecture={() => {
-          setView('app');
-          setActiveTab('dbms_architecture');
-        }}
-      />
+      <>
+        <WelcomeRoleSelectionPage
+          onSelectRole={(role) => {}}
+          onLoginSuccess={handleLoginSuccess}
+          onGuestEmergencyReport={handleGuestEmergencyReport}
+          onTrackIncident={(inc) => setTrackedIncidentModal(inc)}
+          onExploreSystem={() => {
+            setView('app');
+            setActiveTab('dbms_architecture');
+          }}
+        />
+        {trackedIncidentModal && (
+          <PublicTrackerModal
+            incident={trackedIncidentModal}
+            onClose={() => setTrackedIncidentModal(null)}
+          />
+        )}
+      </>
     );
   }
 
@@ -123,6 +121,10 @@ export const App: React.FC = () => {
             setActiveTab('reporter_portal');
           } else if (newUser.role === 'CONTROL_OPERATOR') {
             setActiveTab('dashboard');
+          } else if (newUser.role === 'HOSPITAL_COORDINATOR') {
+            setActiveTab('hospital_coord');
+          } else if (newUser.role === 'FIELD_RESPONDER') {
+            setActiveTab('field_responder');
           } else if (newUser.role === 'ADMIN' || newUser.role === 'ADMINISTRATOR') {
             setActiveTab('admin_users');
           } else if (newUser.role === 'ANALYST') {
@@ -130,7 +132,7 @@ export const App: React.FC = () => {
           }
         }}
         onLogout={handleLogout}
-        onLoadScenario={handleReloadScenario}
+        onLoadScenario={() => setActiveTab('dashboard')}
       />
 
       {/* Main Body Layout */}
@@ -148,7 +150,7 @@ export const App: React.FC = () => {
         />
 
         {/* Content View Container */}
-        <main className="flex-1 overflow-y-auto bg-[#070B14]">
+        <main className="flex-1 overflow-y-auto bg-[#070B14] flex flex-col">
           {activeTab === 'dashboard' && (
             <DashboardPage
               onSelectIncidentForAllocation={handleSelectIncidentForAllocation}
@@ -156,7 +158,16 @@ export const App: React.FC = () => {
             />
           )}
           {activeTab === 'reporter_portal' && (
-            <ReporterPortalPage onSwitchToEOC={() => setActiveTab('dashboard')} user={user} />
+            <ReporterPortalPage 
+              onSwitchToEOC={() => setActiveTab('dashboard')} 
+              user={user} 
+            />
+          )}
+          {activeTab === 'hospital_coord' && (
+            <HospitalCoordinatorPage user={user} />
+          )}
+          {activeTab === 'field_responder' && (
+            <FieldResponderPage user={user} />
           )}
           {activeTab === 'dbms_architecture' && <DBMSArchitecturePage />}
           {activeTab === 'incidents' && <IncidentsView user={user} />}
@@ -178,6 +189,14 @@ export const App: React.FC = () => {
           {activeTab === 'settings' && <SettingsView />}
         </main>
       </div>
+
+      {/* Global Public Tracker Modal */}
+      {trackedIncidentModal && (
+        <PublicTrackerModal
+          incident={trackedIncidentModal}
+          onClose={() => setTrackedIncidentModal(null)}
+        />
+      )}
     </div>
   );
 };

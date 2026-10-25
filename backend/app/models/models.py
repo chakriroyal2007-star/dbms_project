@@ -6,6 +6,19 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from app.database.session import Base
 
+class Organization(Base):
+    __tablename__ = "organization"
+    
+    organization_id = Column(String(64), primary_key=True)
+    name = Column(String(255), nullable=False)
+    org_type = Column(String(32), nullable=False)  # HOSPITAL, AMBULANCE_PROVIDER, DISPATCH_CENTER, POLICE, FIRE_RESCUE
+    contact_email = Column(String(255), nullable=True)
+    contact_phone = Column(String(64), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+    
+    members = relationship("UserAccount", back_populates="organization")
+
 class UserAccount(Base):
     __tablename__ = "user_account"
     
@@ -13,13 +26,18 @@ class UserAccount(Base):
     username = Column(String(100), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(String(32), nullable=False, default="CONTROL_OPERATOR")  # ADMINISTRATOR, CONTROL_OPERATOR, ANALYST, REPORTER
+    # Supported roles: ADMINISTRATOR, CONTROL_OPERATOR, HOSPITAL_COORDINATOR, FIELD_RESPONDER, ANALYST, REPORTER
+    role = Column(String(32), nullable=False, default="CONTROL_OPERATOR")
+    organization_id = Column(String(64), ForeignKey("organization.organization_id", ondelete="SET NULL"), nullable=True, index=True)
     full_name = Column(String(150), nullable=False)
+    phone_number = Column(String(32), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     
+    organization = relationship("Organization", back_populates="members")
     reported_incidents = relationship("Incident", back_populates="reporter", foreign_keys="Incident.reporter_id")
+    assigned_responses = relationship("ResponderAssignment", back_populates="responder")
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
@@ -28,8 +46,8 @@ class AuditLog(Base):
     user_id = Column(String(64), nullable=True, index=True)
     username = Column(String(100), nullable=True)
     user_role = Column(String(32), nullable=True)
-    action = Column(String(32), nullable=False, index=True)  # CREATE, UPDATE, DELETE, DISPATCH, ALLOCATE, REPORT, VERIFY, REJECT
-    entity_name = Column(String(64), nullable=False, index=True)  # HOSPITAL, INCIDENT, AMBULANCE, USER, etc.
+    action = Column(String(32), nullable=False, index=True)  # CREATE, UPDATE, DELETE, DISPATCH, ALLOCATE, REPORT, VERIFY, REJECT, ASSIGN, ACKNOWLEDGE, ARRIVE
+    entity_name = Column(String(64), nullable=False, index=True)  # HOSPITAL, INCIDENT, AMBULANCE, USER, ORGANIZATION, etc.
     entity_id = Column(String(64), nullable=False, index=True)
     details = Column(Text, nullable=True)
     old_value_json = Column(JSON, nullable=True)
@@ -40,12 +58,20 @@ class Incident(Base):
     __tablename__ = "incident"
     
     incident_id = Column(String(64), primary_key=True)
+    tracking_code = Column(String(32), unique=True, nullable=True, index=True)
+    tracking_token = Column(String(64), nullable=True)  # Secret guest credential
     reporter_id = Column(String(64), ForeignKey("user_account.user_id", ondelete="SET NULL"), nullable=True, index=True)
-    incident_type = Column(String(64), nullable=False)
+    reporter_name = Column(String(150), nullable=True)
+    reporter_phone = Column(String(32), nullable=True)
+    reporter_consent = Column(Boolean, default=True, nullable=False)
+    
+    incident_type = Column(String(64), nullable=False)  # ROAD_ACCIDENT, COLLAPSE, UNCONSCIOUS, BREATHING_DISTRESS, TRAUMA_INJURY, CARDIAC, FIRE_HAZARD, OTHER
     description = Column(Text, nullable=False)
     severity = Column(String(16), nullable=False, index=True)  # LOW, MEDIUM, HIGH, CRITICAL
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
+    location_accuracy_meters = Column(Float, nullable=True)
+    is_location_verified = Column(Boolean, default=False, nullable=False)
     
     # Structured Geographic Model
     country = Column(String(64), default="India", nullable=False)
@@ -58,8 +84,18 @@ class Incident(Base):
     
     occurred_at = Column(DateTime(timezone=True), nullable=False, index=True)
     reported_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
-    status = Column(String(32), default="RECEIVED", nullable=False, index=True)  # RECEIVED, VERIFIED, ACTIVE, CONTAINED, RESOLVED, REJECTED, CANCELLED
+    # Valid Lifecycle: DRAFT, SUBMITTED, RECEIVED, UNDER_REVIEW, VERIFIED, RESPONSE_REQUESTED, RESOURCE_ACKNOWLEDGED, ASSIGNED, EN_ROUTE, ARRIVED, RESOLVED, CANCELLED, UNABLE_TO_COORDINATE
+    status = Column(String(32), default="RECEIVED", nullable=False, index=True)
     estimated_patient_count = Column(Integer, default=1, nullable=False)
+    
+    # Evidence & Voice Recording
+    voice_transcript = Column(Text, nullable=True)
+    detected_language = Column(String(32), nullable=True)
+    evidence_urls_json = Column(JSON, nullable=True)  # [{url, type, name, uploaded_at}]
+    timeline_events_json = Column(JSON, nullable=True)  # Fast cache of timeline events
+    linked_duplicate_id = Column(String(64), nullable=True, index=True)
+    resolution_notes = Column(Text, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
     
@@ -67,6 +103,41 @@ class Incident(Base):
     patients = relationship("Patient", back_populates="incident", cascade="all, delete-orphan")
     allocations = relationship("ResourceAllocation", back_populates="incident", cascade="all, delete-orphan")
     assignments = relationship("HospitalAssignment", back_populates="incident", cascade="all, delete-orphan")
+    timeline_records = relationship("IncidentTimelineEvent", back_populates="incident", cascade="all, delete-orphan")
+    responder_assignments = relationship("ResponderAssignment", back_populates="incident", cascade="all, delete-orphan")
+
+class IncidentTimelineEvent(Base):
+    __tablename__ = "incident_timeline_event"
+    
+    event_id = Column(String(64), primary_key=True)
+    incident_id = Column(String(64), ForeignKey("incident.incident_id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(32), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False)
+    actor_name = Column(String(100), nullable=True)
+    actor_role = Column(String(32), nullable=True)
+    timestamp = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False, index=True)
+    
+    incident = relationship("Incident", back_populates="timeline_records")
+
+class ResponderAssignment(Base):
+    __tablename__ = "responder_assignment"
+    
+    assignment_id = Column(String(64), primary_key=True)
+    incident_id = Column(String(64), ForeignKey("incident.incident_id", ondelete="CASCADE"), nullable=False, index=True)
+    responder_user_id = Column(String(64), ForeignKey("user_account.user_id", ondelete="CASCADE"), nullable=False, index=True)
+    resource_id = Column(String(64), nullable=True)  # Ambulance ID or Team ID
+    status = Column(String(32), default="REQUESTED", nullable=False)  # REQUESTED, ACKNOWLEDGED, DECLINED, EN_ROUTE, ARRIVED, COMPLETED
+    decline_reason = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    assigned_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    en_route_at = Column(DateTime(timezone=True), nullable=True)
+    arrived_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    incident = relationship("Incident", back_populates="responder_assignments")
+    responder = relationship("UserAccount", back_populates="assigned_responses")
 
 class Hospital(Base):
     __tablename__ = "hospital"
