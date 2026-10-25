@@ -90,7 +90,7 @@ export const HospitalCoordinatorPage: React.FC<HospitalCoordinatorPageProps> = (
               </span>
             </div>
             <p className="text-xs text-zinc-400 font-mono">
-              Emergency Level: {profile?.emergency_level || 'LEVEL_1'} • Coordinator: {user?.full_name || 'Dr. Priya Sharma'}
+              Emergency Level: {profile?.emergency_level || 'LEVEL_1'} • Coordinator: {user?.full_name || user?.username || 'Authorized Coordinator'} • Source: Verified Manual Report
             </p>
           </div>
         </div>

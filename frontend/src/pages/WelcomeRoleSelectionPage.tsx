@@ -150,26 +150,8 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
     setAuthError(null);
     setAuthSuccess(null);
     
-    // Auto-fill credential hint for easy demonstration without automatic login
-    if (role.id === 'REPORTER') {
-      setUsername('reporter');
-      setPassword('reporter123');
-    } else if (role.id === 'CONTROL_OPERATOR') {
-      setUsername('operator');
-      setPassword('operator123');
-    } else if (role.id === 'HOSPITAL_COORDINATOR') {
-      setUsername('hospital_coord');
-      setPassword('hospital123');
-    } else if (role.id === 'FIELD_RESPONDER') {
-      setUsername('responder');
-      setPassword('responder123');
-    } else if (role.id === 'ANALYST') {
-      setUsername('analyst');
-      setPassword('analyst123');
-    } else if (role.id === 'ADMINISTRATOR') {
-      setUsername('admin');
-      setPassword('admin123');
-    }
+    setUsername('');
+    setPassword('');
   };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -426,7 +408,7 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
                   {/* Bottom Action Hint */}
                   <div className="pt-6 mt-4 border-t border-zinc-800/80 flex items-center justify-between text-xs">
                     <span className="text-zinc-500 font-mono text-[11px]">
-                      Hint: {role.defaultUserHint}
+                      {role.badgeText}
                     </span>
                     <span className="inline-flex items-center gap-1 font-semibold text-zinc-300 group-hover:text-white transition-colors">
                       <span>Launch</span>

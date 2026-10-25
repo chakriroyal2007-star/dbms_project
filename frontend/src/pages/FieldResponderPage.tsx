@@ -70,7 +70,7 @@ export const FieldResponderPage: React.FC<FieldResponderPageProps> = ({ user }) 
               </span>
             </div>
             <p className="text-xs text-zinc-400 font-mono">
-              Responder: {user?.full_name || 'Paramedic Lead Rajesh Kumar'} • Unit: ALS-01
+              Responder: {user?.full_name || user?.username || 'Authorized Responder'} • Assigned Field Unit
             </p>
           </div>
         </div>

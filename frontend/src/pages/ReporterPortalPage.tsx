@@ -29,17 +29,17 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
   const [stateName, setStateName] = useState('Andhra Pradesh');
   const [district, setDistrict] = useState('Tirupati');
   const [city, setCity] = useState('Tirupati');
-  const [locality, setLocality] = useState('Alipiri Corridor');
-  const [landmark, setLandmark] = useState('Near Garuda Statue Circle');
-  const [locationName, setLocationName] = useState('Alipiri Bypass Circle Sector 2, Tirupati');
+  const [locality, setLocality] = useState('');
+  const [landmark, setLandmark] = useState('');
+  const [locationName, setLocationName] = useState('');
   const [description, setDescription] = useState('');
   const [patientCount, setPatientCount] = useState<number>(1);
   const [unknownCasualties, setUnknownCasualties] = useState<boolean>(false);
   const [severity, setSeverity] = useState('CRITICAL');
-  const [reporterName, setReporterName] = useState(user?.full_name || 'Bystander Citizen');
-  const [reporterPhone, setReporterPhone] = useState('+91-9876543210');
+  const [reporterName, setReporterName] = useState(user?.full_name || '');
+  const [reporterPhone, setReporterPhone] = useState('');
   const [reporterConsent, setReporterConsent] = useState(true);
-  const [coords, setCoords] = useState<{ lat: number; lng: number }>({ lat: 13.6550, lng: 79.3950 });
+  const [coords, setCoords] = useState<{ lat: number; lng: number }>({ lat: 13.6288, lng: 79.4192 });
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [isLocationVerified, setIsLocationVerified] = useState<boolean>(false);
   
@@ -167,8 +167,18 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
   // ---------------------------------------------------------------------------
   // Voice Recording Pipeline (MediaRecorder API)
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Voice Recording Pipeline (MediaRecorder + Web Speech API)
+  // ---------------------------------------------------------------------------
+  const [speechNotice, setSpeechNotice] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+
   const startVoiceRecording = async () => {
     try {
+      setError(null);
+      setSpeechNotice(null);
+      setVoiceTranscript(''); // Clear previous recording so it never lingers
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
@@ -188,6 +198,35 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
         await processVoiceAudio(audioBlob);
       };
 
+      // Native Web Speech API real-time recognition if available in browser
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = 'en-US';
+          recognition.onresult = (event: any) => {
+            let current = '';
+            for (let i = 0; i < event.results.length; i++) {
+              current += event.results[i][0].transcript + ' ';
+            }
+            if (current.trim()) {
+              setVoiceTranscript(current.trim());
+              // Automatically populate description with live real speech
+              setDescription(prev => prev ? prev : current.trim());
+            }
+          };
+          recognition.onerror = (e: any) => {
+            console.warn("Browser SpeechRecognition warning:", e.error);
+          };
+          recognition.start();
+          recognitionRef.current = recognition;
+        } catch (recErr) {
+          console.warn("Could not start native Web Speech API:", recErr);
+        }
+      }
+
       mediaRecorderRef.current.start();
       setIsRecording(true);
       setRecordingSeconds(0);
@@ -196,7 +235,7 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
       }, 1000);
     } catch (err) {
       console.error("Microphone access failed:", err);
-      setError("Microphone access was denied or is not supported in this browser.");
+      setError("Microphone access was denied or is not supported. Please type your emergency description.");
     }
   };
 
@@ -206,9 +245,36 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
       setIsRecording(false);
       clearInterval(timerRef.current);
     }
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Ignore stop error
+      }
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerRef.current);
+    }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) {}
+    }
+    audioChunksRef.current = [];
+    setVoiceAudioBlob(null);
+    setVoiceTranscript('');
+    setSpeechNotice("Voice recording was cancelled.");
   };
 
   const processVoiceAudio = async (blob: Blob) => {
+    if (blob.size < 500) {
+      setSpeechNotice("Recording was too short or empty. Please record again or type details.");
+      return;
+    }
+
     try {
       setIsTranscribing(true);
       const audioFile = new File([blob], `voice_report_${Date.now()}.webm`, { type: 'audio/webm' });
@@ -221,18 +287,23 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
           filename: uploadRes.filename || 'voice_recording.webm'
         }]);
 
-        if (uploadRes.transcript) {
-          setVoiceTranscript(uploadRes.transcript);
-          // Auto-append to description if description is empty
-          setDescription(prev => prev ? prev : `[Audio Transcript]: ${uploadRes.transcript}`);
+        // If backend returned a transcript from Python SpeechRecognition, use it
+        if (uploadRes.transcript && uploadRes.transcript.trim()) {
+          setVoiceTranscript(uploadRes.transcript.trim());
+          setDescription(prev => prev ? prev : uploadRes.transcript.trim());
+          setSpeechNotice("Speech successfully recognized. Please review and edit below if needed.");
+        } else if (uploadRes.transcription_message) {
+          // If no speech heard, inform the user honestly without inventing words!
+          if (!voiceTranscript) {
+            setSpeechNotice(uploadRes.transcription_message);
+          }
         }
       }
     } catch (err: any) {
-      console.warn("Audio upload/transcription fallback:", err);
-      // Fallback transcription demonstration message
-      const fallbackMsg = "Severe traffic collision observed. Multiple injured passengers trapped in vehicle. Immediate trauma assistance required.";
-      setVoiceTranscript(fallbackMsg);
-      setDescription(prev => prev ? prev : `[Audio Transcript]: ${fallbackMsg}`);
+      console.warn("Audio upload error:", err);
+      if (!voiceTranscript) {
+        setSpeechNotice("Speech recognition service was unreachable. Please type your emergency details directly.");
+      }
     } finally {
       setIsTranscribing(false);
     }
@@ -689,37 +760,81 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
                       <button
                         type="button"
                         onClick={startVoiceRecording}
-                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                        className="px-3.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
                       >
                         <Mic className="w-3.5 h-3.5" />
-                        <span>Record Voice</span>
+                        <span>Record Voice Note</span>
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={stopVoiceRecording}
-                        className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer animate-pulse"
-                      >
-                        <Square className="w-3.5 h-3.5 fill-current" />
-                        <span>Stop Recording ({recordingSeconds}s)</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={stopVoiceRecording}
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer animate-pulse"
+                        >
+                          <Square className="w-3.5 h-3.5 fill-current" />
+                          <span>Stop ({recordingSeconds}s)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelVoiceRecording}
+                          className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs transition-all cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     )}
                   </div>
 
                   {isTranscribing && (
                     <div className="p-2.5 rounded bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-[11px] flex items-center gap-2">
                       <Activity className="w-4 h-4 animate-spin text-cyan-400" />
-                      <span>Uploading audio and executing speech-to-text pipeline...</span>
+                      <span>Transcribing real speech audio...</span>
+                    </div>
+                  )}
+
+                  {speechNotice && (
+                    <div className="p-2.5 rounded bg-amber-950/40 border border-amber-500/30 text-amber-300 text-[11px] flex items-center justify-between">
+                      <span>{speechNotice}</span>
+                      <button 
+                        type="button" 
+                        onClick={() => setSpeechNotice(null)} 
+                        className="text-amber-400 hover:text-amber-200 text-xs ml-2 cursor-pointer"
+                      >
+                        ✕
+                      </button>
                     </div>
                   )}
 
                   {voiceTranscript && (
-                    <div className="p-3 bg-black/50 border border-gray-700 rounded-lg space-y-1">
-                      <div className="text-[10px] text-cyan-400 font-bold uppercase flex items-center justify-between">
-                        <span>Verified Audio Transcript</span>
-                        <span className="text-gray-500">Language: English (auto-detected)</span>
+                    <div className="p-3 bg-black/60 border border-gray-700 rounded-lg space-y-2">
+                      <div className="flex items-center justify-between text-[10px] text-cyan-400 font-bold uppercase">
+                        <span>Captured Speech Transcript (Editable • Unconfirmed)</span>
+                        <span className="text-gray-500">Review & Correct</span>
                       </div>
-                      <div className="text-xs text-gray-200 font-sans italic">"{voiceTranscript}"</div>
+                      <textarea
+                        rows={2}
+                        value={voiceTranscript}
+                        onChange={(e) => {
+                          setVoiceTranscript(e.target.value);
+                          setDescription(e.target.value);
+                        }}
+                        className="w-full bg-black/40 border border-gray-700 rounded p-2 text-xs text-gray-200 font-sans focus:outline-none focus:border-cyan-500"
+                        placeholder="Review your transcribed voice note here..."
+                      />
+                      <div className="flex items-center justify-between text-[10px] text-gray-400">
+                        <span>You can edit words above to correct locations or names.</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVoiceTranscript('');
+                            setVoiceAudioBlob(null);
+                          }}
+                          className="text-rose-400 hover:text-rose-300 underline cursor-pointer"
+                        >
+                          Discard Audio Note
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

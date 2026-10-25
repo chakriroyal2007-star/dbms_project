@@ -1,8 +1,11 @@
 import pytest
+import io
+import wave
 from fastapi.testclient import TestClient
 from app.main import app
 from app.database.session import SessionLocal
 from app.models.models import Incident, Patient
+from app.api.evidence import extract_entities_from_transcript
 
 client = TestClient(app)
 
@@ -123,8 +126,43 @@ def test_operator_verification_and_timeline_propagation():
     assert "UNDER_REVIEW" in statuses
     assert "VERIFIED" in statuses
 
-def test_evidence_upload_pipeline():
-    """Test evidence upload endpoint with audio and document extensions."""
+def test_state_machine_invalid_transition_rejected():
+    """Verify state machine strictly rejects illegal status jumps (e.g. RECEIVED -> RESOLVED)."""
+    op_res = client.post("/api/auth/login", json={"username": "operator", "password": "operator123"})
+    op_token = op_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {op_token}"}
+
+    res = client.post("/api/incidents/report", json={
+        "incident_type": "STRUCTURAL_FIRE",
+        "description": "Smoke in basement",
+        "severity": "HIGH",
+        "latitude": 13.6288,
+        "longitude": 79.4192,
+        "location_name": "Downtown Arcade",
+        "estimated_patient_count": 0
+    })
+    inc_id = res.json()["incident_id"]
+
+    # Attempt illegal transition: RECEIVED directly to RESOLVED without verification/dispatch
+    illegal_res = client.patch(
+        f"/api/incidents/{inc_id}/status?new_status=RESOLVED",
+        headers=headers
+    )
+    assert illegal_res.status_code == 400
+    assert "Invalid status transition" in illegal_res.json()["detail"]
+
+def test_evidence_upload_pipeline_and_authentic_stt():
+    """
+    Verify evidence upload pipeline:
+    - Rejects files with invalid/dangerous extensions.
+    - Accurately reports EMPTY_AUDIO on zero/tiny data without inventing canned transcripts.
+    """
+    # 1. Invalid extension rejected
+    bad_files = {"file": ("malicious.exe", b"binarycontent", "application/octet-stream")}
+    bad_res = client.post("/api/evidence/upload", files=bad_files)
+    assert bad_res.status_code == 400
+
+    # 2. Audio file upload: empty bytes returns EMPTY_AUDIO and NO canned text
     test_content = b"RIFF....WAVEfmt ....data...."
     files = {"file": ("dispatch_audio.wav", test_content, "audio/wav")}
     data = {"media_category": "AUDIO_VOICE"}
@@ -134,9 +172,30 @@ def test_evidence_upload_pipeline():
     u_json = upload_res.json()
     assert u_json["media_category"] == "AUDIO_VOICE"
     assert "speech_to_text" in u_json
-    assert u_json["speech_to_text"]["status"] == "COMPLETED"
-    assert "transcript" in u_json["speech_to_text"]
-    assert "extracted_entities" in u_json["speech_to_text"]
+    assert u_json["speech_to_text"]["status"] == "EMPTY_AUDIO"
+    assert u_json["speech_to_text"]["transcript"] is None
+    # Crucial rule: Never return canned collision text on empty audio
+    assert "Severe traffic collision observed" not in str(u_json)
+    assert "A high-speed collision occurred" not in str(u_json)
+
+def test_structured_entity_extraction_truthfulness():
+    """
+    Verify structured extraction extracts only explicitly stated facts
+    and marks unmentioned fields as Unknown rather than fabricating data.
+    """
+    # Case A: Transcript with stated casualties
+    transcript_a = "Major car crash on highway near toll gate. Three people are injured and bleeding."
+    extracted_a = extract_entities_from_transcript(transcript_a)
+    assert extracted_a["incident_category"] == "ROAD_ACCIDENT"
+    assert extracted_a["estimated_casualties"] == 3
+    assert "Active bleeding observed" in extracted_a["reported_hazards"]
+
+    # Case B: Transcript without mentioned casualties - must NOT invent numbers!
+    transcript_b = "Heavy smoke coming from second floor apartment. Flames visible through window."
+    extracted_b = extract_entities_from_transcript(transcript_b)
+    assert extracted_b["incident_category"] == "STRUCTURAL_FIRE"
+    assert extracted_b["estimated_casualties"] == "Unknown / Not specified"
+    assert "Fire or smoke hazard" in extracted_b["reported_hazards"]
 
 def test_responder_and_hospital_coordinator_endpoints():
     """Test Role 3 (Hospital Coordinator) and Role 4 (Field Responder) operations."""

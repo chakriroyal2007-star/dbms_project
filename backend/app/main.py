@@ -13,9 +13,10 @@ from app.api import (
 # Initialize database schema tables
 Base.metadata.create_all(bind=engine)
 
-# Auto seed if empty
-with SessionLocal() as db:
-    seed_database(db=db, force_reset=False)
+# Auto seed if empty and allowed (disabled by default in production)
+if settings.ALLOW_AUTO_SEED and settings.ENVIRONMENT.lower() != "production":
+    with SessionLocal() as db:
+        seed_database(db=db, force_reset=False)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

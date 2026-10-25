@@ -25,6 +25,8 @@ export const IncidentsView: React.FC<{ user?: User | null }> = ({ user }) => {
   const [newType, setNewType] = useState('BUILDING_FIRE');
   const [newDesc, setNewDesc] = useState('');
   const [newLoc, setNewLoc] = useState('');
+  const [newLat, setNewLat] = useState('13.6288');
+  const [newLng, setNewLng] = useState('79.4192');
   const [newSev, setNewSev] = useState('CRITICAL');
   const [newPatients, setNewPatients] = useState(5);
   const [submitting, setSubmitting] = useState(false);
@@ -37,7 +39,7 @@ export const IncidentsView: React.FC<{ user?: User | null }> = ({ user }) => {
       setIncidents(data || []);
     } catch (err: any) {
       console.error(err);
-      setError(err?.response?.data?.detail || 'Failed to fetch incidents from PostgreSQL database.');
+      setError(err?.response?.data?.detail || 'Failed to fetch incidents from database.');
     } finally {
       setLoading(false);
     }
@@ -49,12 +51,14 @@ export const IncidentsView: React.FC<{ user?: User | null }> = ({ user }) => {
     e.preventDefault();
     setSubmitting(true);
     try {
+      const parsedLat = parseFloat(newLat);
+      const parsedLng = parseFloat(newLng);
       await incidentsApi.create({
         incident_type: newType,
         description: newDesc || `Emergency triage incident at ${newLoc}`,
         severity: newSev,
-        latitude: 13.6288 + (Math.random() - 0.5) * 0.05,
-        longitude: 79.4192 + (Math.random() - 0.5) * 0.05,
+        latitude: isNaN(parsedLat) ? 13.6288 : parsedLat,
+        longitude: isNaN(parsedLng) ? 79.4192 : parsedLng,
         location_name: newLoc || "Central Urban Sector",
         estimated_patient_count: Number(newPatients)
       });
@@ -251,6 +255,31 @@ export const IncidentsView: React.FC<{ user?: User | null }> = ({ user }) => {
                   onChange={(e) => setNewLoc(e.target.value)}
                   className="w-full bg-black/50 border border-gray-700 rounded-lg p-2.5 text-gray-200 focus:outline-none focus:border-red-500"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1">Latitude</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    required
+                    value={newLat}
+                    onChange={(e) => setNewLat(e.target.value)}
+                    className="w-full bg-black/50 border border-gray-700 rounded-lg p-2 text-gray-200 focus:outline-none focus:border-red-500 font-mono text-[11px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-400 mb-1">Longitude</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    required
+                    value={newLng}
+                    onChange={(e) => setNewLng(e.target.value)}
+                    className="w-full bg-black/50 border border-gray-700 rounded-lg p-2 text-gray-200 focus:outline-none focus:border-red-500 font-mono text-[11px]"
+                  />
+                </div>
               </div>
 
               <div>
