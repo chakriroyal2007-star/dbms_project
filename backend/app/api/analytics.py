@@ -47,16 +47,20 @@ def get_analytics_summary(db: Session = Depends(get_db)) -> Dict[str, Any]:
                 "emergency_occupied": latest_cap.emergency_beds_total - latest_cap.emergency_beds_available,
             })
 
-    # 4. ICU Availability over Time (Timeline Series)
-    timeline_series = [
-        {"time": "18:00", "icu_available": 38, "emergency_available": 110, "active_incidents": 1},
-        {"time": "18:30", "icu_available": 32, "emergency_available": 98, "active_incidents": 2},
-        {"time": "19:00", "icu_available": 24, "emergency_available": 75, "active_incidents": 3},
-        {"time": "19:15", "icu_available": 18, "emergency_available": 52, "active_incidents": 4},
-        {"time": "19:30", "icu_available": 14, "emergency_available": 37, "active_incidents": 4},
-        {"time": "19:45", "icu_available": 12, "emergency_available": 31, "active_incidents": 5},
-        {"time": "20:00", "icu_available": 15, "emergency_available": 39, "active_incidents": 3}
-    ]
+    # 4. ICU Availability over Time (from actual persistent HospitalCapacityHistory)
+    recent_caps = db.query(HospitalCapacityHistory).order_by(
+        HospitalCapacityHistory.timestamp.desc()
+    ).limit(15).all()
+    
+    timeline_series = []
+    for cap in reversed(recent_caps):
+        t_str = cap.timestamp.strftime("%H:%M") if cap.timestamp else "N/A"
+        timeline_series.append({
+            "time": t_str,
+            "icu_available": cap.icu_available,
+            "emergency_available": cap.emergency_beds_available,
+            "hospital_id": cap.hospital_id
+        })
 
     # 5. Ambulance Fleet Utilization breakdown
     amb_counts = db.query(
@@ -92,6 +96,21 @@ def get_analytics_summary(db: Session = Depends(get_db)) -> Dict[str, Any]:
         {"level": lvl, "count": count} for lvl, count in road_statuses
     ]
 
+    # 8. Genuine Response Time / SLA Metrics from actual responder missions
+    from app.models.models import ResponderAssignment
+    completed_missions = db.query(ResponderAssignment).filter(
+        ResponderAssignment.assigned_at.isnot(None),
+        ResponderAssignment.arrived_at.isnot(None)
+    ).all()
+
+    avg_response_time = None
+    if completed_missions:
+        total_mins = sum(
+            max(0.0, (m.arrived_at - m.assigned_at).total_seconds() / 60.0)
+            for m in completed_missions
+        )
+        avg_response_time = round(total_mins / len(completed_missions), 1)
+
     return {
         "incidents_by_severity": incidents_by_severity,
         "incidents_by_type": incidents_by_type,
@@ -100,5 +119,7 @@ def get_analytics_summary(db: Session = Depends(get_db)) -> Dict[str, Any]:
         "ambulance_utilization": ambulance_utilization,
         "resource_consumption": resource_consumption,
         "road_congestion": road_congestion,
-        "avg_response_time_minutes": 8.4
+        "avg_response_time_minutes": avg_response_time,
+        "completed_missions_sample_size": len(completed_missions)
     }
+

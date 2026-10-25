@@ -350,4 +350,42 @@ export const coordinationApi = {
   }
 };
 
+export const voiceApi = {
+  transcribeAudio: async (audioFile: File) => {
+    const formData = new FormData();
+    formData.append('audio', audioFile);
+    const res = await api.post('/voice/transcriptions', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return res.data;
+  },
+  extractEntities: async (transcript: string, userCorrected?: string) => {
+    const res = await api.post('/voice/extract-entities', {
+      transcript,
+      user_corrected: userCorrected
+    });
+    return res.data;
+  },
+  correctTranscript: async (originalTranscript: string, userCorrectedTranscript: string, incidentId?: string) => {
+    const res = await api.post('/voice/correct-transcript', {
+      original_transcript: originalTranscript,
+      user_corrected_transcript: userCorrectedTranscript,
+      incident_id: incidentId
+    });
+    return res.data;
+  },
+  getHealth: async () => {
+    const res = await api.get('/voice/health');
+    return res.data;
+  }
+};
+
+export const geocodingApi = {
+  reverseGeocode: async (lat: number, lng: number) => {
+    const res = await api.get('/geocoding/reverse', { params: { lat, lng } });
+    return res.data;
+  }
+};
+
 export default api;
+

@@ -7,7 +7,7 @@ from app.api import (
     auth, dashboard, incidents, ambulances, hospitals,
     resources, roads, temporal, allocation, simulation,
     analytics, performance, explorer, scenarios, sql_playground,
-    evidence, coordination
+    evidence, coordination, voice, geocoding
 )
 
 # Initialize database schema tables
@@ -35,7 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Routers
+# Include Routers (Standard /api)
 app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
 app.include_router(incidents.router, prefix=settings.API_V1_STR)
@@ -53,6 +53,14 @@ app.include_router(scenarios.router, prefix=settings.API_V1_STR)
 app.include_router(sql_playground.router, prefix=settings.API_V1_STR)
 app.include_router(evidence.router, prefix=settings.API_V1_STR)
 app.include_router(coordination.router, prefix=settings.API_V1_STR)
+app.include_router(voice.router, prefix=settings.API_V1_STR)
+app.include_router(geocoding.router, prefix=settings.API_V1_STR)
+
+# Versioned /api/v1 aliases for explicit enterprise API clients
+app.include_router(voice.router, prefix="/api/v1")
+app.include_router(geocoding.router, prefix="/api/v1")
+app.include_router(incidents.router, prefix="/api/v1")
+
 
 @app.get("/")
 def root():

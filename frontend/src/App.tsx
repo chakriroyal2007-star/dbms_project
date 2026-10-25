@@ -23,8 +23,44 @@ import {
 import { User, RoleType, PublicTrackedIncident } from './types';
 import { authApi } from './services/api';
 
+// Helper to determine authoritative default tab for each role
+export const getDefaultTabForRole = (role?: string): string => {
+  switch (role?.toUpperCase()) {
+    case 'REPORTER': return 'reporter_portal';
+    case 'CONTROL_OPERATOR': return 'dashboard';
+    case 'HOSPITAL_COORDINATOR': return 'hospital_coord';
+    case 'FIELD_RESPONDER': return 'field_responder';
+    case 'ANALYST': return 'analytics';
+    case 'ADMINISTRATOR':
+    case 'ADMIN': return 'admin_users';
+    default: return 'dashboard';
+  }
+};
+
+// Guard against cross-role privilege escalation or silent misrouting
+export const getValidTabForRole = (tab: string, userRole?: string): string => {
+  const role = userRole?.toUpperCase() || 'REPORTER';
+  if (role === 'REPORTER') {
+    if (tab === 'reporter_portal' || tab === 'settings' || tab === 'dbms_architecture') return tab;
+    return 'reporter_portal';
+  }
+  if (role === 'FIELD_RESPONDER') {
+    if (['field_responder', 'incidents', 'settings', 'dbms_architecture'].includes(tab)) return tab;
+    return 'field_responder';
+  }
+  if (role === 'HOSPITAL_COORDINATOR') {
+    if (['hospital_coord', 'resources', 'ambulances', 'incidents', 'settings', 'dbms_architecture'].includes(tab)) return tab;
+    return 'hospital_coord';
+  }
+  if (role === 'ANALYST') {
+    if (['analytics', 'historical', 'sql_playground', 'performance', 'explorer', 'dbms_architecture', 'settings'].includes(tab)) return tab;
+    return 'analytics';
+  }
+  return tab;
+};
+
 export const App: React.FC = () => {
-  // Session User State: No hardcoded demo login. Reads saved session or defaults to null
+  // Session User State: Reads saved session or defaults to null
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('tera_user');
     if (saved) {
@@ -37,34 +73,56 @@ export const App: React.FC = () => {
     return localStorage.getItem('tera_user') ? 'app' : 'welcome';
   });
   
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const saved = localStorage.getItem('tera_user');
+    let u: User | null = null;
+    if (saved) {
+      try { u = JSON.parse(saved); } catch (e) {}
+    }
+    const hash = window.location.hash.replace('#', '');
+    if (hash) {
+      return getValidTabForRole(hash, u?.role);
+    }
+    return getDefaultTabForRole(u?.role);
+  });
+
   const [selectedIncidentForAllocation, setSelectedIncidentForAllocation] = useState<string | null>(null);
   const [trackedIncidentModal, setTrackedIncidentModal] = useState<PublicTrackedIncident | null>(null);
+
+  // Sync hash routing on window back/forward
+  React.useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash) {
+        setActiveTab((curr) => {
+          const validated = getValidTabForRole(hash, user?.role);
+          return validated !== curr ? validated : curr;
+        });
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [user]);
+
+  const handleSelectTab = (tab: string) => {
+    const validated = getValidTabForRole(tab, user?.role);
+    setActiveTab(validated);
+    window.location.hash = validated;
+    if (validated !== 'allocation') {
+      setSelectedIncidentForAllocation(null);
+    }
+  };
 
   const handleLoginSuccess = (authenticatedUser: User, targetRole: RoleType) => {
     setUser(authenticatedUser);
     setView('app');
 
-    // Route to appropriate role-specific default view
-    if (targetRole === 'REPORTER') {
-      setActiveTab('reporter_portal');
-    } else if (targetRole === 'CONTROL_OPERATOR') {
-      setActiveTab('dashboard');
-    } else if (targetRole === 'HOSPITAL_COORDINATOR') {
-      setActiveTab('hospital_coord');
-    } else if (targetRole === 'FIELD_RESPONDER') {
-      setActiveTab('field_responder');
-    } else if (targetRole === 'ANALYST') {
-      setActiveTab('analytics');
-    } else if (targetRole === 'ADMINISTRATOR' || targetRole === 'ADMIN') {
-      setActiveTab('admin_users');
-    } else {
-      setActiveTab('dashboard');
-    }
+    const targetTab = getDefaultTabForRole(targetRole);
+    setActiveTab(targetTab);
+    window.location.hash = targetTab;
   };
 
   const handleGuestEmergencyReport = () => {
-    // Guest reporting bypass: No registration or credentials required
     setUser({
       username: 'guest_citizen',
       role: 'REPORTER',
@@ -73,6 +131,7 @@ export const App: React.FC = () => {
     });
     setView('app');
     setActiveTab('reporter_portal');
+    window.location.hash = 'reporter_portal';
   };
 
   const handleLogout = () => {
@@ -80,12 +139,14 @@ export const App: React.FC = () => {
     setUser(null);
     setView('welcome');
     setActiveTab('dashboard');
+    window.location.hash = '';
   };
 
   const handleSelectIncidentForAllocation = (incidentId: string) => {
     setSelectedIncidentForAllocation(incidentId);
-    setActiveTab('allocation');
+    handleSelectTab('allocation');
   };
+
 
   if (view === 'welcome') {
     return (
@@ -117,22 +178,11 @@ export const App: React.FC = () => {
         user={user}
         onUserChange={(newUser) => {
           setUser(newUser);
-          if (newUser.role === 'REPORTER') {
-            setActiveTab('reporter_portal');
-          } else if (newUser.role === 'CONTROL_OPERATOR') {
-            setActiveTab('dashboard');
-          } else if (newUser.role === 'HOSPITAL_COORDINATOR') {
-            setActiveTab('hospital_coord');
-          } else if (newUser.role === 'FIELD_RESPONDER') {
-            setActiveTab('field_responder');
-          } else if (newUser.role === 'ADMIN' || newUser.role === 'ADMINISTRATOR') {
-            setActiveTab('admin_users');
-          } else if (newUser.role === 'ANALYST') {
-            setActiveTab('analytics');
-          }
+          const targetTab = getDefaultTabForRole(newUser.role);
+          handleSelectTab(targetTab);
         }}
         onLogout={handleLogout}
-        onLoadScenario={() => setActiveTab('dashboard')}
+        onLoadScenario={() => handleSelectTab('dashboard')}
       />
 
       {/* Main Body Layout */}
@@ -141,13 +191,9 @@ export const App: React.FC = () => {
         <Sidebar
           activeTab={activeTab}
           user={user}
-          onSelectTab={(tab) => {
-            setActiveTab(tab);
-            if (tab !== 'allocation') {
-              setSelectedIncidentForAllocation(null);
-            }
-          }}
+          onSelectTab={handleSelectTab}
         />
+
 
         {/* Content View Container */}
         <main className="flex-1 overflow-y-auto bg-[#070B14] flex flex-col">

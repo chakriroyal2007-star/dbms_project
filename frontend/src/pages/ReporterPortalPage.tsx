@@ -6,7 +6,7 @@ import {
   Mic, MicOff, Camera, Upload, Play, Square, HeartHandshake, BookOpen, AlertCircle,
   ExternalLink, Copy, HelpCircle
 } from 'lucide-react';
-import { incidentsApi, evidenceApi } from '../services/api';
+import { incidentsApi, evidenceApi, geocodingApi, voiceApi } from '../services/api';
 import { Incident, User, PublicTrackedIncident } from '../types';
 import { PublicTrackerModal } from '../components/PublicTrackerModal';
 
@@ -125,7 +125,7 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
     setLocationError(null);
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
+        async (pos) => {
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
           const acc = Math.round(pos.coords.accuracy);
@@ -133,8 +133,20 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
           setLocationAccuracy(acc);
           setIsLocationVerified(true);
           setLocationError(null);
-          if (!locationName) {
-            setLocationName(`GPS Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+          
+          try {
+            const geoRes = await geocodingApi.reverseGeocode(lat, lng);
+            if (geoRes?.display_name) {
+              setLocationName(geoRes.display_name);
+              if (geoRes.city) setCity(geoRes.city);
+              if (geoRes.street || geoRes.neighbourhood) {
+                setLocality(geoRes.street || geoRes.neighbourhood || '');
+              }
+            } else {
+              setLocationName(`GPS Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)} (±${acc}m)`);
+            }
+          } catch (e) {
+            setLocationName(`GPS Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)} (±${acc}m)`);
           }
         },
         (err) => {
