@@ -61,7 +61,17 @@ def root():
         "full_name": "Temporal Emergency Resource Allocation & Coordination System",
         "tagline": "Coordinate Every Resource. Respond When It Matters Most.",
         "status": "ONLINE",
+        "database_dialect": engine.dialect.name,
+        "database_connected": True,
         "api_docs": "/docs"
+    }
+
+@app.get("/health")
+def health():
+    return {
+        "status": "HEALTHY",
+        "database_dialect": engine.dialect.name,
+        "environment": settings.ENVIRONMENT
     }
 
 if __name__ == "__main__":

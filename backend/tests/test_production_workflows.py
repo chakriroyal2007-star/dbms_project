@@ -219,3 +219,60 @@ def test_responder_and_hospital_coordinator_endpoints():
     resp_assign = client.get("/api/coordination/responder/assignments", headers=r_headers)
     assert resp_assign.status_code == 200
     assert isinstance(resp_assign.json(), list)
+
+def test_guest_empty_my_reports_and_scoped_tracking():
+    """
+    Ensure:
+    1. Guest with my_reports=True and no tracking codes gets an empty list [] (never all DB incidents!).
+    2. Guest with my_reports=True and invalid tracking codes gets an empty list [].
+    3. Guest with valid tracking codes only retrieves their specific reports.
+    """
+    # 1. Anonymous guest with no codes
+    res_empty = client.get("/api/incidents?my_reports=true")
+    assert res_empty.status_code == 200
+    assert res_empty.json() == []
+
+    # 2. Anonymous guest with invalid code
+    res_fake = client.get("/api/incidents?my_reports=true&tracking_codes=TRK-FAKE-9999")
+    assert res_fake.status_code == 200
+    assert res_fake.json() == []
+
+    # 3. Create a real incident and retrieve via tracking code
+    payload = {
+        "incident_type": "ROAD_ACCIDENT",
+        "description": "Scooter skid near residential intersection.",
+        "severity": "MEDIUM",
+        "latitude": 13.6300,
+        "longitude": 79.4200,
+        "location_name": "Gandhi Road Cross 2",
+        "estimated_patient_count": 1,
+        "reporter_name": "Ravi Kumar",
+        "reporter_contact": "+91-9123456789",
+        "reporter_consent": True
+    }
+    create_res = client.post("/api/incidents/report", json=payload)
+    assert create_res.status_code == 200
+    trk_code = create_res.json()["tracking_code"]
+
+    res_scoped = client.get(f"/api/incidents?my_reports=true&tracking_codes={trk_code}")
+    assert res_scoped.status_code == 200
+    data = res_scoped.json()
+    assert len(data) == 1
+    assert data[0]["tracking_code"] == trk_code
+    assert data[0]["location_name"] == "Gandhi Road Cross 2"
+
+def test_system_status_and_database_dialect_truthfulness():
+    """Ensure root and health endpoints truthfully identify dialect and online status."""
+    root_res = client.get("/")
+    assert root_res.status_code == 200
+    root_json = root_res.json()
+    assert "database_dialect" in root_json
+    assert root_json["database_connected"] is True
+    assert root_json["database_dialect"] in ["sqlite", "postgresql"]
+
+    health_res = client.get("/health")
+    assert health_res.status_code == 200
+    health_json = health_res.json()
+    assert health_json["status"] == "HEALTHY"
+    assert health_json["database_dialect"] in ["sqlite", "postgresql"]
+

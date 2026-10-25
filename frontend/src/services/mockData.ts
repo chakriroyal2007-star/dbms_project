@@ -91,64 +91,7 @@ export const INITIAL_HOSPITALS: Hospital[] = [
   }
 ];
 
-export const INITIAL_INCIDENTS: Incident[] = [
-  {
-    incident_id: "INC_DISASTER_001",
-    incident_type: "ROAD_ACCIDENT",
-    description: "Multi-vehicle pileup on NH-71 Expressway involving intercity bus and chemical tanker",
-    severity: "CRITICAL",
-    latitude: 13.6420,
-    longitude: 79.4850,
-    location_name: "NH-71 Expressway Km 14 Near Airport Junction",
-    occurred_at: "2026-09-12T19:15:00Z",
-    reported_at: "2026-09-12T19:17:00Z",
-    status: "ACTIVE",
-    estimated_patient_count: 8,
-    created_at: "2026-09-12T19:15:00Z"
-  },
-  {
-    incident_id: "INC_DISASTER_002",
-    incident_type: "BUILDING_FIRE",
-    description: "Commercial shopping complex 4-story structural fire with toxic smoke entrapment",
-    severity: "HIGH",
-    latitude: 13.6260,
-    longitude: 79.4210,
-    location_name: "Town Center Plaza, Gandhi Road",
-    occurred_at: "2026-09-12T18:30:00Z",
-    reported_at: "2026-09-12T18:32:00Z",
-    status: "ACTIVE",
-    estimated_patient_count: 15,
-    created_at: "2026-09-12T18:30:00Z"
-  },
-  {
-    incident_id: "INC_DISASTER_003",
-    incident_type: "FLOOD",
-    description: "Flash flood causing low-lying residential inundation and roof collapse",
-    severity: "HIGH",
-    latitude: 13.6120,
-    longitude: 79.4350,
-    location_name: "Swarnamukhi River Basin Sector 4",
-    occurred_at: "2026-09-12T18:45:00Z",
-    reported_at: "2026-09-12T18:47:00Z",
-    status: "ACTIVE",
-    estimated_patient_count: 20,
-    created_at: "2026-09-12T18:45:00Z"
-  },
-  {
-    incident_id: "INC_DISASTER_004",
-    incident_type: "INDUSTRIAL_ACCIDENT",
-    description: "Chemical reactor leak and boiler explosion in manufacturing park",
-    severity: "CRITICAL",
-    latitude: 13.6050,
-    longitude: 79.4680,
-    location_name: "Renigunta Industrial Estate Block C",
-    occurred_at: "2026-09-12T19:00:00Z",
-    reported_at: "2026-09-12T19:02:00Z",
-    status: "ACTIVE",
-    estimated_patient_count: 6,
-    created_at: "2026-09-12T19:00:00Z"
-  }
-];
+export const INITIAL_INCIDENTS: Incident[] = [];
 
 export const INITIAL_AMBULANCES: Ambulance[] = Array.from({ length: 17 }, (_, i) => ({
   ambulance_id: `AMB_${i + 1 < 10 ? '00' : '0'}${i + 1}`,

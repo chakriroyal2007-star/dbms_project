@@ -31,9 +31,9 @@ class Settings(BaseModel):
     CENTER_LAT: float = 13.6288
     CENTER_LNG: float = 79.4192
     
-    # Environment & Data Seeding Guard
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
-    ALLOW_AUTO_SEED: bool = os.getenv("ALLOW_AUTO_SEED", "true").lower() in ["true", "1", "yes"]
+    # Environment & Data Seeding Guard: strictly disabled in production
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
+    ALLOW_AUTO_SEED: bool = os.getenv("ALLOW_AUTO_SEED", "false").lower() in ["true", "1", "yes"]
     
     # AI & Speech Provider Configuration
     SPEECH_PROVIDER: str = os.getenv("SPEECH_PROVIDER", "GOOGLE_SPEECH")  # "GOOGLE_SPEECH", "OPENAI_WHISPER", "LOCAL_ENGINE"

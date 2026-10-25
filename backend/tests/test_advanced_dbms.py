@@ -48,6 +48,7 @@ def test_temporal_differentiation():
     """
     Tests that historical intelligence returns distinct resource states for 19:00 vs 19:30.
     """
+    client.post("/api/scenarios/load-major-disaster?force_reset=true")
     res_1900 = client.get("/api/temporal/reconstruct?timestamp=2026-09-12T19:00:00").json()
     res_1930 = client.get("/api/temporal/reconstruct?timestamp=2026-09-12T19:30:00").json()
     

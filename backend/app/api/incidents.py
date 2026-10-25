@@ -88,6 +88,7 @@ def list_incidents(
     status: Optional[str] = None,
     severity: Optional[str] = None,
     reporter_id: Optional[str] = None,
+    tracking_codes: Optional[str] = None,
     my_reports: bool = False,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -96,14 +97,25 @@ def list_incidents(
     """
     Lists incidents from database.
     - If user has role 'REPORTER' or 'my_reports=True', enforces: WHERE reporter_id = current_user.user_id
+    - If guest passes 'my_reports=True' with tracking_codes, filters by those tracking codes.
+    - If guest passes 'my_reports=True' without tracking codes, returns an empty list [].
     - Operators, Administrators, and Analysts can view all incidents or filter.
     """
     query = db.query(Incident)
     
     if current_user and current_user.role.upper() == "REPORTER":
         query = query.filter(Incident.reporter_id == current_user.user_id)
-    elif my_reports and current_user:
-        query = query.filter(Incident.reporter_id == current_user.user_id)
+    elif my_reports:
+        if current_user:
+            query = query.filter(Incident.reporter_id == current_user.user_id)
+        elif tracking_codes:
+            codes = [c.strip() for c in tracking_codes.split(",") if c.strip()]
+            if codes:
+                query = query.filter(Incident.tracking_code.in_(codes))
+            else:
+                return []
+        else:
+            return []
     elif reporter_id:
         query = query.filter(Incident.reporter_id == reporter_id)
 

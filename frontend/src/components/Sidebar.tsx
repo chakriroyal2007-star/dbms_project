@@ -66,7 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user }
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
           </div>
           <p className="text-[10px] text-zinc-500 leading-relaxed font-sans">
-            Every submission is committed to PostgreSQL and forwarded to the EOC triage queue.
+            Every verified submission is committed to the authoritative relational database and queued for coordination.
           </p>
         </div>
       </aside>

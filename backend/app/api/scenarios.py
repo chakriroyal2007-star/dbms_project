@@ -15,7 +15,7 @@ def load_major_disaster_scenario(force_reset: bool = Query(True), db: Session = 
     - 3 blocked roads & traffic bottlenecks
     - Historical snapshots across the timeline (19:00, 19:15, 19:30, 19:45, 20:00)
     """
-    res = seed_database(db=db, force_reset=force_reset)
+    res = seed_database(db=db, force_reset=force_reset, seed_demo_incidents=True)
     return {
         "status": "success",
         "scenario": "Major Disaster Contention Scenario",

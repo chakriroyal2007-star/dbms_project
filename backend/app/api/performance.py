@@ -116,15 +116,18 @@ def run_query_explain(
         }
         speedup = "19.2x Faster"
 
-    # Measure live DB ping
+    # Measure live DB ping and active dialect
     t0 = time.time()
     db.execute(text("SELECT 1;"))
     live_ping_ms = round((time.time() - t0) * 1000, 3)
+    
+    dialect_name = db.bind.dialect.name
+    engine_name = "PostgreSQL 15 (Active Connection)" if dialect_name == "postgresql" else f"SQLite Relational Core (Database: {db.bind.url.database or 'tera.db'})"
 
     return {
         "benchmark_type": benchmark_type,
         "sql_query": sql_query.strip(),
-        "database_engine": "PostgreSQL 15 / SQLite Relational Core",
+        "database_engine": engine_name,
         "live_ping_ms": live_ping_ms,
         "speedup_factor": speedup,
         "indexed_plan": indexed_plan,

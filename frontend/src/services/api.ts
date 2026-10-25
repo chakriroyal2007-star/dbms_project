@@ -106,7 +106,7 @@ export const hospitalsApi = {
 };
 
 export const incidentsApi = {
-  getAll: async (params?: { status?: string; severity?: string; my_reports?: boolean; reporter_id?: string; limit?: number }) => {
+  getAll: async (params?: { status?: string; severity?: string; my_reports?: boolean; reporter_id?: string; tracking_codes?: string; limit?: number }) => {
     const res = await api.get('/incidents', { params });
     return res.data;
   },

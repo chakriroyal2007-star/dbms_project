@@ -10,8 +10,8 @@ from app.models.models import (
 )
 from app.services.security import get_password_hash
 
-def seed_database(db: Session, force_reset: bool = False):
-    """Populates the database with realistic synthetic emergency grid data."""
+def seed_database(db: Session, force_reset: bool = False, seed_demo_incidents: bool = False):
+    """Populates the database with infrastructure registry. Operational incidents are never seeded unless explicitly requested for simulation."""
     existing_users = db.query(UserAccount).first()
     if existing_users and not force_reset:
         return {"status": "already_seeded", "message": "Database already populated."}
@@ -547,123 +547,118 @@ def seed_database(db: Session, force_reset: bool = False):
     ]
     
     inc_objects = []
-    for inc_id, inc_type, desc, sev, lat, lng, loc, locality, landmark, occ_time, p_count, status_code in scenario_incidents:
-        inc_objects.append(Incident(
-            incident_id=inc_id,
-            tracking_code=f"TRK-260912-{inc_id[-4:]}",
-            reporter_id="USR_REPORTER_01",
-            reporter_name="Citizen Emergency Informant",
-            reporter_phone="+91-9876543210",
-            reporter_consent=True,
-            incident_type=inc_type,
-            description=desc,
-            severity=sev,
-            latitude=lat,
-            longitude=lng,
-            country="India",
-            state="Andhra Pradesh",
-            district="Tirupati",
-            city="Tirupati",
-            locality=locality,
-            landmark=landmark,
-            location_name=loc,
-            occurred_at=occ_time,
-            reported_at=occ_time + datetime.timedelta(minutes=1),
-            status=status_code,
-            estimated_patient_count=p_count,
-            created_at=occ_time,
-            updated_at=datetime.datetime.utcnow()
-        ))
-    db.add_all(inc_objects)
-    db.flush()
-
-    # Create 49 Patient records matching the 4 incidents
     patients = []
-    p_counter = 1
     
-    # Incident 1 (8 critical road accident casualties needing ICU/Surgery/Ventilators)
-    for _ in range(8):
-        patients.append(Patient(
-            patient_id=f"PAT_{p_counter:04d}",
-            incident_id="INC_DISASTER_001",
-            severity="CRITICAL",
-            age=random.randint(18, 65),
-            required_resource=random.choice(["ICU_BED", "VENTILATOR", "SURGERY"]),
-            transport_status="AWAITING_TRIAGE",
-            created_at=t_minus_15m
-        ))
-        p_counter += 1
+    if seed_demo_incidents:
+        for inc_id, inc_type, desc, sev, lat, lng, loc, locality, landmark, occ_time, p_count, status_code in scenario_incidents:
+            inc_objects.append(Incident(
+                incident_id=inc_id,
+                tracking_code=f"TRK-260912-{inc_id[-4:]}",
+                reporter_id="USR_REPORTER_01",
+                reporter_name="Citizen Emergency Informant",
+                reporter_phone="+91-9876543210",
+                reporter_consent=True,
+                incident_type=inc_type,
+                description=desc,
+                severity=sev,
+                latitude=lat,
+                longitude=lng,
+                country="India",
+                state="Andhra Pradesh",
+                district="Tirupati",
+                city="Tirupati",
+                locality=locality,
+                landmark=landmark,
+                location_name=loc,
+                occurred_at=occ_time,
+                reported_at=occ_time + datetime.timedelta(minutes=1),
+                status=status_code,
+                estimated_patient_count=p_count,
+                created_at=occ_time,
+                updated_at=datetime.datetime.utcnow()
+            ))
+        db.add_all(inc_objects)
+        db.flush()
 
-    # Incident 2 (15 building fire casualties: burn kits, oxygen, emergency beds)
-    for _ in range(15):
-        p_sev = random.choice(["CRITICAL", "SERIOUS", "MODERATE"])
-        req = "BURN_UNIT" if p_sev == "CRITICAL" else ("OXYGEN" if p_sev == "SERIOUS" else "EMERGENCY_BED")
-        patients.append(Patient(
-            patient_id=f"PAT_{p_counter:04d}",
-            incident_id="INC_DISASTER_002",
-            severity=p_sev,
-            age=random.randint(10, 72),
-            required_resource=req,
-            transport_status="AWAITING_TRIAGE",
-            created_at=t_minus_1h
-        ))
-        p_counter += 1
+        p_counter = 1
+        for _ in range(8):
+            patients.append(Patient(
+                patient_id=f"PAT_{p_counter:04d}",
+                incident_id="INC_DISASTER_001",
+                severity="CRITICAL",
+                age=random.randint(18, 65),
+                required_resource=random.choice(["ICU_BED", "VENTILATOR", "SURGERY"]),
+                transport_status="AWAITING_TRIAGE",
+                created_at=t_minus_15m
+            ))
+            p_counter += 1
 
-    # Incident 3 (20 flood casualties: hypothermia, trauma, emergency beds)
-    for _ in range(20):
-        p_sev = random.choice(["SERIOUS", "MODERATE", "MINOR"])
-        patients.append(Patient(
-            patient_id=f"PAT_{p_counter:04d}",
-            incident_id="INC_DISASTER_003",
-            severity=p_sev,
-            age=random.randint(5, 80),
-            required_resource="EMERGENCY_BED" if p_sev in ["SERIOUS", "MODERATE"] else "GENERAL_OBSERVATION",
-            transport_status="AWAITING_TRIAGE",
-            created_at=t_minus_1h
-        ))
-        p_counter += 1
+        for _ in range(15):
+            p_sev = random.choice(["CRITICAL", "SERIOUS", "MODERATE"])
+            req = "BURN_UNIT" if p_sev == "CRITICAL" else ("OXYGEN" if p_sev == "SERIOUS" else "EMERGENCY_BED")
+            patients.append(Patient(
+                patient_id=f"PAT_{p_counter:04d}",
+                incident_id="INC_DISASTER_002",
+                severity=p_sev,
+                age=random.randint(10, 72),
+                required_resource=req,
+                transport_status="AWAITING_TRIAGE",
+                created_at=t_minus_1h
+            ))
+            p_counter += 1
 
-    # Incident 4 (6 industrial disaster victims: hazmat, ICU, severe inhalation trauma)
-    for _ in range(6):
-        patients.append(Patient(
-            patient_id=f"PAT_{p_counter:04d}",
-            incident_id="INC_DISASTER_004",
-            severity="CRITICAL",
-            age=random.randint(22, 58),
-            required_resource=random.choice(["ICU_BED", "VENTILATOR", "BLOOD_TRANSFUSION"]),
-            transport_status="AWAITING_TRIAGE",
-            created_at=t_minus_30m
-        ))
-        p_counter += 1
+        for _ in range(20):
+            p_sev = random.choice(["SERIOUS", "MODERATE", "MINOR"])
+            patients.append(Patient(
+                patient_id=f"PAT_{p_counter:04d}",
+                incident_id="INC_DISASTER_003",
+                severity=p_sev,
+                age=random.randint(5, 80),
+                required_resource="EMERGENCY_BED" if p_sev in ["SERIOUS", "MODERATE"] else "GENERAL_OBSERVATION",
+                transport_status="AWAITING_TRIAGE",
+                created_at=t_minus_1h
+            ))
+            p_counter += 1
 
-    # Incident 5 (5 field casualties from highway collision)
-    for _ in range(5):
-        p_sev = random.choice(["SERIOUS", "CRITICAL", "MODERATE"])
-        patients.append(Patient(
-            patient_id=f"PAT_{p_counter:04d}",
-            incident_id="INC_FIELD_1042",
-            severity=p_sev,
-            age=random.randint(19, 60),
-            required_resource="ICU_BED" if p_sev == "CRITICAL" else "EMERGENCY_BED",
-            transport_status="AWAITING_TRIAGE",
-            created_at=datetime.datetime.utcnow()
-        ))
-        p_counter += 1
+        for _ in range(6):
+            patients.append(Patient(
+                patient_id=f"PAT_{p_counter:04d}",
+                incident_id="INC_DISASTER_004",
+                severity="CRITICAL",
+                age=random.randint(22, 58),
+                required_resource=random.choice(["ICU_BED", "VENTILATOR", "BLOOD_TRANSFUSION"]),
+                transport_status="AWAITING_TRIAGE",
+                created_at=t_minus_30m
+            ))
+            p_counter += 1
 
-    # Incident 6 (3 hazmat vapor victims)
-    for _ in range(3):
-        patients.append(Patient(
-            patient_id=f"PAT_{p_counter:04d}",
-            incident_id="INC_FIELD_1043",
-            severity="CRITICAL",
-            age=random.randint(25, 52),
-            required_resource="VENTILATOR",
-            transport_status="AWAITING_TRIAGE",
-            created_at=datetime.datetime.utcnow()
-        ))
-        p_counter += 1
+        for _ in range(5):
+            p_sev = random.choice(["SERIOUS", "CRITICAL", "MODERATE"])
+            patients.append(Patient(
+                patient_id=f"PAT_{p_counter:04d}",
+                incident_id="INC_FIELD_1042",
+                severity=p_sev,
+                age=random.randint(19, 60),
+                required_resource="ICU_BED" if p_sev == "CRITICAL" else "EMERGENCY_BED",
+                transport_status="AWAITING_TRIAGE",
+                created_at=datetime.datetime.utcnow()
+            ))
+            p_counter += 1
 
-    db.add_all(patients)
+        for _ in range(3):
+            patients.append(Patient(
+                patient_id=f"PAT_{p_counter:04d}",
+                incident_id="INC_FIELD_1043",
+                severity="CRITICAL",
+                age=random.randint(25, 52),
+                required_resource="VENTILATOR",
+                transport_status="AWAITING_TRIAGE",
+                created_at=datetime.datetime.utcnow()
+            ))
+            p_counter += 1
+
+        db.add_all(patients)
+    
     db.commit()
 
     print("TERA Database successfully seeded with 100 hospitals, 500 ambulances, 150+ roads, 60 emergency teams, and 49 disaster patients.")

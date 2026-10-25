@@ -76,49 +76,40 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState<string | null>(null);
 
-  // Location Presets
-  const locationPresets = [
-    {
-      label: "Alipiri Bypass Circle (Sector 2)",
-      locality: "Alipiri Corridor",
-      landmark: "Garuda Statue Circle",
-      lat: 13.6550,
-      lng: 79.3950,
-      fullName: "Alipiri Bypass Circle Sector 2, Tirupati"
-    },
-    {
-      label: "NH-71 Airport Expressway (Km 14)",
-      locality: "Airport Corridor",
-      landmark: "Tirupati Airport Toll Gate",
-      lat: 13.6420,
-      lng: 79.4850,
-      fullName: "NH-71 Expressway Km 14 Near Airport Junction, Tirupati"
-    },
-    {
-      label: "Town Center Plaza (Gandhi Road)",
-      locality: "Central Commercial Sector",
-      landmark: "Gandhi Road Clock Tower",
-      lat: 13.6260,
-      lng: 79.4210,
-      fullName: "Town Center Plaza, Gandhi Road, Tirupati"
-    },
-    {
-      label: "Settipalli Freight Hub (Block C)",
-      locality: "Settipalli Industrial Hub",
-      landmark: "Railway Cargo Gate 4",
-      lat: 13.6180,
-      lng: 79.4520,
-      fullName: "Settipalli Freight Yard Shed 3, Tirupati"
-    }
-  ];
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [reportsError, setReportsError] = useState<string | null>(null);
 
   const fetchMyReports = async () => {
     try {
       setLoadingReports(true);
-      const data = await incidentsApi.getAll({ my_reports: true, limit: 25 });
-      setMyReports(data || []);
-    } catch (err) {
-      console.warn('Could not fetch user-specific reports; falling back to local history:', err);
+      setReportsError(null);
+      
+      // If user is authenticated, query user's incidents
+      if (user) {
+        const data = await incidentsApi.getAll({ my_reports: true, limit: 25 });
+        setMyReports(data || []);
+      } else {
+        // Unauthenticated guest: query only by their durable saved tracking codes
+        try {
+          const saved = JSON.parse(localStorage.getItem('tera_tracked_incidents') || '[]');
+          if (Array.isArray(saved) && saved.length > 0) {
+            const codes = saved.map((item: any) => item.tracking_code).filter(Boolean).join(',');
+            if (codes) {
+              const data = await incidentsApi.getAll({ my_reports: true, tracking_codes: codes, limit: 25 });
+              setMyReports(data || []);
+            } else {
+              setMyReports([]);
+            }
+          } else {
+            setMyReports([]);
+          }
+        } catch (e) {
+          setMyReports([]);
+        }
+      }
+    } catch (err: any) {
+      console.warn('Could not fetch incidents:', err);
+      setReportsError("Unable to load incidents. Check your connection and try again.");
     } finally {
       setLoadingReports(false);
     }
@@ -128,18 +119,10 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
     fetchMyReports();
     const interval = setInterval(fetchMyReports, 5000);
     return () => clearInterval(interval);
-  }, []);
-
-  const handleSelectPreset = (preset: typeof locationPresets[0]) => {
-    setLocality(preset.locality);
-    setLandmark(preset.landmark);
-    setLocationName(preset.fullName);
-    setCoords({ lat: preset.lat, lng: preset.lng });
-    setLocationAccuracy(null);
-    setIsLocationVerified(false);
-  };
+  }, [user]);
 
   const handleUseMyLocation = () => {
+    setLocationError(null);
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -149,18 +132,21 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
           setCoords({ lat, lng });
           setLocationAccuracy(acc);
           setIsLocationVerified(true);
-          setLocationName(`GPS Location (${lat.toFixed(4)}, ${lng.toFixed(4)}) - Tirupati Area`);
-          setLocality("GPS Live Radius");
-          setLandmark(`Accuracy: ±${acc}m`);
+          setLocationError(null);
+          if (!locationName) {
+            setLocationName(`GPS Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+          }
         },
         (err) => {
-          console.warn("GPS access denied or unavailable, using preset:", err);
-          handleSelectPreset(locationPresets[0]);
+          console.warn("GPS access denied or unavailable:", err);
+          setIsLocationVerified(false);
+          setLocationError("Location permission denied or unavailable. Please enter your address or landmark manually below.");
         },
         { enableHighAccuracy: true, timeout: 8000 }
       );
     } else {
-      handleSelectPreset(locationPresets[0]);
+      setIsLocationVerified(false);
+      setLocationError("Geolocation is not supported by your browser. Please enter your location manually below.");
     }
   };
 
@@ -683,24 +669,21 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
                     </div>
                   )}
 
-                  {/* Location Presets */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {locationPresets.map((preset, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleSelectPreset(preset)}
-                        className={`p-2 rounded-lg border text-left text-[10px] transition-all cursor-pointer ${
-                          locationName === preset.fullName
-                            ? 'bg-cyan-950/80 border-cyan-500 text-cyan-200 font-bold'
-                            : 'bg-black/40 border-gray-800 text-gray-400 hover:bg-gray-800'
-                        }`}
+                  {locationError && (
+                    <div className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-300 text-[11px] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>{locationError}</span>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => setLocationError(null)} 
+                        className="text-amber-400 hover:text-amber-200 text-xs cursor-pointer ml-2"
                       >
-                        <div className="truncate font-semibold">{preset.label}</div>
-                        <div className="text-[9px] text-gray-500">{preset.locality}</div>
+                        ✕
                       </button>
-                    ))}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Full Location Input */}
                   <input
@@ -1168,14 +1151,35 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
               </button>
             </div>
 
-            {myReports.length === 0 ? (
-              <div className="text-center py-12 text-xs text-gray-400 space-y-2">
-                <div>No reports logged under your session yet.</div>
+            {reportsError ? (
+              <div className="text-center py-10 px-4 space-y-3">
+                <div className="p-3 bg-red-950/40 border border-red-500/40 text-xs text-red-300 rounded-xl max-w-md mx-auto">
+                  {reportsError}
+                </div>
                 <button
-                  onClick={() => setActiveTab('emergency')}
-                  className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-xs font-bold cursor-pointer"
+                  type="button"
+                  onClick={fetchMyReports}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs rounded-lg cursor-pointer"
                 >
-                  Report an Incident Now
+                  Retry Connection
+                </button>
+              </div>
+            ) : myReports.length === 0 ? (
+              <div className="text-center py-12 px-4 space-y-3">
+                <div className="w-12 h-12 mx-auto rounded-full bg-cyan-950/60 border border-cyan-800/40 flex items-center justify-center text-cyan-400">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div className="text-sm font-bold text-white">No incidents have been reported yet.</div>
+                <p className="text-xs text-gray-400 max-w-sm mx-auto font-sans">
+                  When you submit an emergency report, its verified tracking code and real-time status updates will appear here.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('emergency')}
+                  className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-cyan-950/50 cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Report an emergency</span>
                 </button>
               </div>
             ) : (
