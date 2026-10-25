@@ -67,11 +67,21 @@ def root():
     }
 
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {
         "status": "HEALTHY",
         "database_dialect": engine.dialect.name,
         "environment": settings.ENVIRONMENT
+    }
+
+@app.get("/api")
+def api_root():
+    return {
+        "product": "TERA API",
+        "status": "ONLINE",
+        "database_dialect": engine.dialect.name,
+        "database_connected": True
     }
 
 if __name__ == "__main__":
