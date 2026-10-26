@@ -8,3 +8,7 @@ python-multipart>=0.0.9
 httpx>=0.27.0
 requests>=2.31.0
 SpeechRecognition>=3.10.0
+reportlab>=3.8.0,<4.1.0
+firebase-admin>=6.5.0
+
+

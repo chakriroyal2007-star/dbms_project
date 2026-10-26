@@ -67,7 +67,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   useEffect(() => {
     fetchDashboardData();
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchDashboardData();
+      }
+    }, 3000);
+    return () => clearInterval(interval);
   }, []);
+
 
   const handleVerifyIncident = async (incId: string) => {
     try {
@@ -363,11 +370,28 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         </td>
 
                         <td className="p-3.5 text-[11px] text-zinc-400 font-mono whitespace-nowrap">
-                          {new Date(inc.reported_at || inc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <div>{new Date(inc.reported_at || inc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                          {typeof (inc as any).readiness_score === 'number' && (
+                            <div className="text-[10px] text-cyan-400 font-bold mt-0.5">
+                              {(inc as any).readiness_score.toFixed(0)}/100 Readiness
+                            </div>
+                          )}
                         </td>
+
 
                         <td className="p-3.5 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            <a
+                              href={`/api/incidents/${encodeURIComponent(inc.incident_id)}/pdf`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Download Official Incident PDF Report"
+                              className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-medium border border-zinc-700 flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-rose-400" />
+                              <span className="hidden sm:inline">PDF</span>
+                            </a>
+
                             <button
                               onClick={() => setReviewIncident(inc)}
                               className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-cyan-300 text-xs font-medium transition-all cursor-pointer border border-zinc-700 flex items-center gap-1.5"
@@ -375,6 +399,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               <Eye className="w-3.5 h-3.5" />
                               <span>Inspect</span>
                             </button>
+
 
                             {inc.status === 'RECEIVED' ? (
                               <button
@@ -737,14 +762,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setReviewIncident(null)}
-                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold rounded-lg cursor-pointer text-xs"
-              >
-                Close
-              </button>
-            </div>
+                <a
+                  href={`/api/incidents/${encodeURIComponent(reviewIncident.incident_id)}/pdf`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-rose-300 hover:text-rose-200 font-semibold rounded-lg border border-zinc-700 cursor-pointer text-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <FileText className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Official Incident PDF</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => setReviewIncident(null)}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold rounded-lg cursor-pointer text-xs"
+                >
+                  Close
+                </button>
+              </div>
+
 
           </div>
         </div>

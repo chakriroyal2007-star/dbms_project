@@ -35,6 +35,13 @@ class UserAccount(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     
+    # Firebase Identity & Provisioning Lifecycle
+    firebase_uid = Column(String(128), unique=True, nullable=True, index=True)
+    approval_status = Column(String(32), default="APPROVED", nullable=False, index=True)  # PENDING_APPROVAL, APPROVED, SUSPENDED, REJECTED
+    approval_notes = Column(Text, nullable=True)
+    approved_by_user_id = Column(String(64), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    
     organization = relationship("Organization", back_populates="members")
     reported_incidents = relationship("Incident", back_populates="reporter", foreign_keys="Incident.reporter_id")
     assigned_responses = relationship("ResponderAssignment", back_populates="responder")
@@ -96,6 +103,21 @@ class Incident(Base):
     timeline_events_json = Column(JSON, nullable=True)  # Fast cache of timeline events
     linked_duplicate_id = Column(String(64), nullable=True, index=True)
     resolution_notes = Column(Text, nullable=True)
+    
+    # Operational Readiness & Idempotency
+    idempotency_key = Column(String(128), unique=True, nullable=True, index=True)
+    readiness_score = Column(Float, nullable=True)
+    readiness_details_json = Column(JSON, nullable=True)
+    hazards_reported = Column(Text, nullable=True)
+    injuries_reported = Column(Text, nullable=True)
+    operator_notes = Column(Text, nullable=True)
+    
+    # Incident PDF Document Lifecycle
+    pdf_status = Column(String(32), default="PENDING", nullable=False)  # PENDING, GENERATING, READY, FAILED_RETRYABLE
+    pdf_path = Column(String(255), nullable=True)
+    pdf_version = Column(Integer, default=1, nullable=False)
+    pdf_generated_at = Column(DateTime(timezone=True), nullable=True)
+    pdf_hash = Column(String(64), nullable=True)
     
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
@@ -324,11 +346,16 @@ class HospitalAssignment(Base):
     
     assignment_id = Column(String(64), primary_key=True)
     incident_id = Column(String(64), ForeignKey("incident.incident_id", ondelete="CASCADE"), nullable=False, index=True)
-    patient_id = Column(String(64), ForeignKey("patient.patient_id", ondelete="CASCADE"), nullable=False)
+    patient_id = Column(String(64), ForeignKey("patient.patient_id", ondelete="CASCADE"), nullable=True)
     hospital_id = Column(String(64), ForeignKey("hospital.hospital_id", ondelete="RESTRICT"), nullable=False)
     assigned_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
     arrival_time = Column(DateTime(timezone=True), nullable=True)
-    status = Column(String(32), default="DISPATCHED", nullable=False)  # DISPATCHED, ADMITTED, DIVERTED, TRANSFERRED, COMPLETED
+    # Referral lifecycle: PROPOSED, SENT, ACCEPTED, REJECTED, EXPIRED, CONFIRMED, DISPATCHED, ADMITTED, ARRIVED, HANDOVER, COMPLETED
+    status = Column(String(32), default="DISPATCHED", nullable=False)
+    requested_by_user_id = Column(String(64), nullable=True)
+    responded_by_user_id = Column(String(64), nullable=True)
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
     
     incident = relationship("Incident", back_populates="assignments")
     patient = relationship("Patient")

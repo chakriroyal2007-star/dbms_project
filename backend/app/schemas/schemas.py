@@ -15,6 +15,24 @@ class Token(BaseModel):
     user_id: Optional[str] = None
     organization_id: Optional[str] = None
     is_active: Optional[bool] = True
+    approval_status: Optional[str] = "APPROVED"
+    firebase_uid: Optional[str] = None
+
+class FirebaseLoginRequest(BaseModel):
+    firebase_token: Optional[str] = None
+    id_token: Optional[str] = None
+    requested_role: Optional[str] = None
+    role: Optional[str] = None
+    phone_number: Optional[str] = None
+    invitation_code: Optional[str] = None
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+
+    def get_token(self) -> str:
+        return self.firebase_token or self.id_token or ""
+
+    def get_role(self) -> Optional[str]:
+        return self.requested_role or self.role
 
 class TokenData(BaseModel):
     username: Optional[str] = None
@@ -49,6 +67,9 @@ class UserResponse(BaseModel):
     created_at: datetime.datetime
     last_login_at: Optional[datetime.datetime] = None
     organization_id: Optional[str] = None
+    phone_number: Optional[str] = None
+    approval_status: Optional[str] = "APPROVED"
+    firebase_uid: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -196,10 +217,14 @@ class EmergencyReportRequest(BaseModel):
     city: Optional[str] = "Tirupati"
     locality: Optional[str] = None
     landmark: Optional[str] = None
-    location_name: str
+    location_name: Optional[str] = "Reported Location"
+    address: Optional[str] = None
     estimated_patient_count: int = 1
+    casualties: Optional[int] = None
     reporter_name: Optional[str] = None
+    caller_name: Optional[str] = None
     reporter_contact: Optional[str] = None
+    caller_phone: Optional[str] = None
     reporter_consent: bool = True
     voice_transcript: Optional[str] = None
     detected_language: Optional[str] = "en"
@@ -207,6 +232,9 @@ class EmergencyReportRequest(BaseModel):
     location_accuracy_meters: Optional[float] = None
     is_location_verified: bool = False
     evidence_urls: Optional[List[Dict[str, Any]]] = None
+    idempotency_key: Optional[str] = None
+    injuries_reported: Optional[str] = None
+    hazards_reported: Optional[str] = None
 
 
 class EmergencyReportReceipt(BaseModel):
@@ -232,6 +260,9 @@ class EmergencyReportReceipt(BaseModel):
     timeline_events: List[Dict[str, Any]] = []
     voice_transcript: Optional[str] = None
     structured_extraction: Optional[Dict[str, Any]] = None
+    readiness_score: Optional[float] = None
+    readiness_details: Optional[Dict[str, Any]] = None
+    pdf_status: Optional[str] = "PENDING"
 
 class IncidentUpdate(BaseModel):
     incident_type: Optional[str] = None
@@ -280,6 +311,16 @@ class IncidentResponse(BaseModel):
     timeline_events_json: Optional[List[Dict[str, Any]]] = None
     linked_duplicate_id: Optional[str] = None
     resolution_notes: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    readiness_score: Optional[float] = None
+    readiness_details_json: Optional[Dict[str, Any]] = None
+    hazards_reported: Optional[str] = None
+    injuries_reported: Optional[str] = None
+    operator_notes: Optional[str] = None
+    pdf_status: Optional[str] = "PENDING"
+    pdf_path: Optional[str] = None
+    pdf_version: Optional[int] = 1
+    pdf_hash: Optional[str] = None
     patients: List[PatientResponse] = []
     created_at: datetime.datetime
     updated_at: datetime.datetime

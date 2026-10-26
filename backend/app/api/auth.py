@@ -10,10 +10,12 @@ from app.config import settings
 from app.database.session import get_db
 from app.models.models import UserAccount, AuditLog
 from app.schemas.schemas import (
-    Token, UserLogin, UserCreate, UserUpdate, UserResponse, AuditLogResponse
+    Token, UserLogin, UserCreate, UserUpdate, UserResponse, AuditLogResponse,
+    FirebaseLoginRequest
 )
 from app.services.security import verify_password, get_password_hash
 from app.services.audit_service import log_audit_event
+from app.services.firebase_service import verify_firebase_id_token
 
 router = APIRouter(prefix="/auth", tags=["Authentication & User Management"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
@@ -55,6 +57,16 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Account is deactivated. Contact an Administrator."
+            )
+        if getattr(user, "approval_status", "APPROVED") == "PENDING_APPROVAL":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is pending administrator approval."
+            )
+        if getattr(user, "approval_status", "APPROVED") in ["SUSPENDED", "REJECTED"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Account access has been {user.approval_status.lower()}. Contact an Administrator."
             )
         return user
     return None
@@ -127,7 +139,9 @@ def login(login_data: UserLogin, db: Session = Depends(get_db)):
         "email": user.email,
         "user_id": user.user_id,
         "organization_id": user.organization_id,
-        "is_active": user.is_active
+        "is_active": user.is_active,
+        "approval_status": getattr(user, "approval_status", "APPROVED"),
+        "firebase_uid": getattr(user, "firebase_uid", None)
     }
 
 @router.post("/token", response_model=Token)
@@ -220,7 +234,169 @@ def register_account(data: UserCreate, db: Session = Depends(get_db)):
         "email": new_user.email,
         "user_id": new_user.user_id,
         "organization_id": new_user.organization_id,
-        "is_active": new_user.is_active
+        "is_active": new_user.is_active,
+        "approval_status": getattr(new_user, "approval_status", "APPROVED"),
+        "firebase_uid": getattr(new_user, "firebase_uid", None)
+    }
+
+@router.post("/firebase-login", response_model=Token)
+def firebase_login(data: FirebaseLoginRequest, db: Session = Depends(get_db)):
+    """
+    Genuine Firebase Authentication & OTP Verification endpoint.
+    - Verifies Firebase ID Token server-side with Firebase Admin SDK.
+    - Authenticates the real verified phone number or email from Firebase.
+    - Enforces provisioning policy and role approval.
+    - Never trusts a frontend-provided role or user ID without verification.
+    """
+    raw_token = data.get_token()
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Firebase ID token."
+        )
+    try:
+        decoded_token = verify_firebase_id_token(raw_token)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Firebase authentication token verification failed: {str(e)}"
+        )
+
+    firebase_uid = decoded_token.get("uid")
+    verified_phone = decoded_token.get("phone_number")
+    verified_email = decoded_token.get("email")
+
+    if not firebase_uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Firebase ID token: missing UID."
+        )
+
+    # 1. Match existing user by firebase_uid or matching email or phone
+    user = db.query(UserAccount).filter(UserAccount.firebase_uid == firebase_uid).first()
+    if not user and verified_email:
+        user = db.query(UserAccount).filter(UserAccount.email == verified_email.lower().strip()).first()
+        if user and not user.firebase_uid:
+            user.firebase_uid = firebase_uid
+            db.commit()
+
+    if not user and verified_phone:
+        user = db.query(UserAccount).filter(UserAccount.phone_number == verified_phone.strip()).first()
+        if user and not user.firebase_uid:
+            user.firebase_uid = firebase_uid
+            db.commit()
+
+    # 2. Existing user check
+    if user:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is deactivated. Contact an Administrator."
+            )
+        if getattr(user, "approval_status", "APPROVED") == "PENDING_APPROVAL":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your account registration is pending Administrator approval. Access to operational portals is restricted until authorized."
+            )
+        if getattr(user, "approval_status", "APPROVED") in ["SUSPENDED", "REJECTED"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Account access has been {user.approval_status.lower()}. Contact an Administrator."
+            )
+
+        user.last_login_at = datetime.datetime.utcnow()
+        db.commit()
+
+        access_token = create_access_token(
+            data={"sub": user.username, "role": user.role, "user_id": user.user_id}
+        )
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "role": user.role,
+            "username": user.username,
+            "full_name": user.full_name,
+            "email": user.email,
+            "user_id": user.user_id,
+            "organization_id": user.organization_id,
+            "is_active": user.is_active,
+            "approval_status": getattr(user, "approval_status", "APPROVED"),
+            "firebase_uid": user.firebase_uid
+        }
+
+    # 3. New User Onboarding & Secure Provisioning Policy
+    raw_role = (data.get_role() or "REPORTER").strip().upper()
+    if raw_role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid requested role '{raw_role}'."
+        )
+
+    requested_role = "ADMINISTRATOR" if raw_role == "ADMIN" else raw_role
+    provided_code = (data.invitation_code or "").strip()
+    expected_code = getattr(settings, "PRIVILEGED_INVITATION_CODE", "TERA-OPERATIONS-SECURE-2026")
+    is_code_valid = bool(provided_code and provided_code == expected_code)
+
+    # Determine approval status based on role and credentials
+    if requested_role in PRIVILEGED_ROLES:
+        if not is_code_valid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Self-registration for privileged role '{requested_role}' is restricted. Administrator provisioning or a valid administrative authorization code is required."
+            )
+        approval_status = "APPROVED"
+    elif requested_role == "REPORTER":
+        approval_status = "APPROVED"
+    else:
+        # Operational roles (HOSPITAL_COORDINATOR, FIELD_RESPONDER, ANALYST)
+        if is_code_valid:
+            approval_status = "APPROVED"
+        else:
+            # Safe default: Requires Admin approval before active portal access
+            approval_status = "PENDING_APPROVAL"
+
+    new_user_id = f"USR_{uuid.uuid4().hex[:8].upper()}"
+    fallback_uname = (verified_email.split('@')[0] if verified_email else f"user_{firebase_uid[:6]}").lower()
+    uname = fallback_uname
+    count = 1
+    while db.query(UserAccount).filter(UserAccount.username == uname).first():
+        uname = f"{fallback_uname}_{count}"
+        count += 1
+
+    new_user = UserAccount(
+        user_id=new_user_id,
+        username=uname,
+        email=(verified_email or f"{uname}@tera.local").lower(),
+        phone_number=verified_phone,
+        hashed_password=get_password_hash(uuid.uuid4().hex),  # Random secure password for Firebase users
+        role=requested_role,
+        full_name=(data.full_name or uname).strip(),
+        is_active=True,
+        firebase_uid=firebase_uid,
+        approval_status=approval_status,
+        approval_notes="Registered via Firebase Phone/OTP Authentication",
+        created_at=datetime.datetime.utcnow(),
+        last_login_at=datetime.datetime.utcnow() if approval_status == "APPROVED" else None
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    access_token = create_access_token(
+        data={"sub": new_user.username, "role": new_user.role, "user_id": new_user.user_id}
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "role": new_user.role,
+        "username": new_user.username,
+        "full_name": new_user.full_name,
+        "email": new_user.email,
+        "user_id": new_user.user_id,
+        "organization_id": new_user.organization_id,
+        "is_active": new_user.is_active,
+        "approval_status": new_user.approval_status,
+        "firebase_uid": new_user.firebase_uid
     }
 
 @router.get("/me", response_model=UserResponse)
@@ -389,3 +565,66 @@ def reset_demo_environment(
     )
     db.commit()
     return {"status": "success", "message": "Demo environment reset to clean baseline."}
+
+@router.post("/users/{user_id}/approve", response_model=UserResponse)
+
+def approve_user_account(
+    user_id: str,
+    notes: Optional[str] = Query(None),
+    current_user: UserAccount = Depends(require_role(["ADMIN", "ADMINISTRATOR"])),
+    db: Session = Depends(get_db)
+):
+    """Admin-only: Approves a pending user account, granting portal access."""
+    target_user = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    target_user.approval_status = "APPROVED"
+    target_user.is_active = True
+    target_user.approved_by_user_id = current_user.user_id
+    target_user.approved_at = datetime.datetime.utcnow()
+    if notes:
+        target_user.approval_notes = notes
+
+    log_audit_event(
+        db=db,
+        action="UPDATE",
+        entity_name="USER",
+        entity_id=user_id,
+        user=current_user,
+        details=f"Admin approved account {target_user.username} for role {target_user.role}"
+    )
+    db.commit()
+    db.refresh(target_user)
+    return target_user
+
+@router.post("/users/{user_id}/suspend", response_model=UserResponse)
+def suspend_user_account(
+    user_id: str,
+    reason: Optional[str] = Query(None),
+    current_user: UserAccount = Depends(require_role(["ADMIN", "ADMINISTRATOR"])),
+    db: Session = Depends(get_db)
+):
+    """Admin-only: Suspends an active user account."""
+    target_user = db.query(UserAccount).filter(UserAccount.user_id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target_user.user_id == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Cannot suspend your own admin account")
+
+    target_user.approval_status = "SUSPENDED"
+    target_user.is_active = False
+    if reason:
+        target_user.approval_notes = reason
+
+    log_audit_event(
+        db=db,
+        action="UPDATE",
+        entity_name="USER",
+        entity_id=user_id,
+        user=current_user,
+        details=f"Admin suspended account {target_user.username}"
+    )
+    db.commit()
+    db.refresh(target_user)
+    return target_user

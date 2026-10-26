@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.models import (
     UserAccount, Organization, Hospital, HospitalCapacityHistory,
-    Incident, ResponderAssignment, IncidentTimelineEvent
+    Incident, ResponderAssignment, IncidentTimelineEvent, HospitalAssignment, Patient,
+    Ambulance, AmbulanceStatusHistory
 )
+
 from app.api.auth import get_current_user, require_role
 from app.services.audit_service import log_audit_event
 
@@ -224,3 +226,207 @@ def update_hospital_capacity(
     )
     db.commit()
     return {"status": "success", "hospital_id": hosp.hospital_id, "updated_at": now}
+
+@router.get("/hospital/referrals")
+def get_hospital_referrals(
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(require_role("HOSPITAL_COORDINATOR", "ADMINISTRATOR", "CONTROL_OPERATOR"))
+):
+    """
+    Returns referral and patient transfer admissions for the authenticated coordinator's hospital.
+    Strict multi-tenant security: coordinators only receive referrals directed to their authorized facility.
+    """
+    hosp_id = current_user.organization_id
+    query = db.query(HospitalAssignment)
+    if current_user.role.upper() == "HOSPITAL_COORDINATOR" and hosp_id:
+        query = query.filter(HospitalAssignment.hospital_id == hosp_id)
+
+    assignments = query.order_by(HospitalAssignment.assigned_at.desc()).all()
+    results = []
+    for a in assignments:
+        inc = db.query(Incident).filter(Incident.incident_id == a.incident_id).first()
+        pat = db.query(Patient).filter(Patient.patient_id == a.patient_id).first() if a.patient_id else None
+        hosp = db.query(Hospital).filter(Hospital.hospital_id == a.hospital_id).first()
+        results.append({
+            "assignment_id": a.assignment_id,
+            "incident_id": a.incident_id,
+            "incident_type": inc.incident_type if inc else "UNKNOWN",
+            "patient_id": a.patient_id,
+            "required_resource": pat.required_resource if pat else "EMERGENCY_BED",
+            "hospital_id": a.hospital_id,
+            "hospital_name": hosp.name if hosp else "Assigned Hospital",
+            "status": a.status,
+            "assigned_at": a.assigned_at,
+            "arrival_time": a.arrival_time,
+            "responded_at": a.responded_at,
+            "rejection_reason": a.rejection_reason
+        })
+    return results
+
+@router.post("/hospital/referrals/{assignment_id}/respond")
+def respond_hospital_referral(
+    assignment_id: str,
+    action: Optional[str] = Query(None, description="ACCEPTED, REJECTED, CONFIRMED, ARRIVED, HANDOVER"),
+    response_status: Optional[str] = Query(None),
+    reason: Optional[str] = Query(None),
+    notes: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(require_role("HOSPITAL_COORDINATOR", "ADMINISTRATOR", "CONTROL_OPERATOR"))
+):
+    """
+    Referral workflow state transition:
+    Proposed -> Sent -> Accepted / Rejected -> Confirmed -> Arrived -> Handover.
+    Only authorized coordinator for the destination hospital can accept/reject.
+    """
+    assign = db.query(HospitalAssignment).filter(HospitalAssignment.assignment_id == assignment_id).first()
+    if not assign:
+        raise HTTPException(status_code=404, detail="Referral assignment not found")
+
+    if current_user.role.upper() == "HOSPITAL_COORDINATOR" and current_user.organization_id:
+        if assign.hospital_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Unauthorized: Cannot modify referrals for an unrelated hospital.")
+
+    effective_action = action or response_status
+    if not effective_action:
+        raise HTTPException(status_code=400, detail="Action or response_status is required.")
+
+    target_status = effective_action.upper()
+    now = datetime.datetime.utcnow()
+    old_status = assign.status
+    assign.status = target_status
+    assign.responded_by_user_id = current_user.user_id
+    assign.responded_at = now
+
+    effective_reason = reason or notes
+    if target_status == "REJECTED":
+        assign.rejection_reason = effective_reason or "Capacity exhausted or diverged"
+    elif target_status in ["ARRIVED", "HANDOVER"]:
+        assign.arrival_time = now
+
+    log_audit_event(
+        db,
+        action="UPDATE",
+        entity_name="hospital_assignment",
+        entity_id=assignment_id,
+        user=current_user,
+        details=f"Hospital coordinator {current_user.full_name} responded to referral {assignment_id} with {target_status} (Reason: {effective_reason})",
+        old_value={"status": old_status},
+        new_value={"status": target_status, "rejection_reason": effective_reason}
+    )
+    db.commit()
+    return {"status": target_status, "assignment_id": assignment_id, "new_status": target_status}
+
+@router.post("/dispatch/{incident_id}/assign-ambulance")
+def assign_ambulance_to_incident(
+    incident_id: str,
+    ambulance_id: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(require_role("CONTROL_OPERATOR", "ADMINISTRATOR", "ADMIN"))
+):
+    """
+    Assigns an eligible emergency ambulance to an incident with strict concurrency control.
+    Fails if the ambulance is already assigned or unavailable.
+    """
+    inc = db.query(Incident).filter(Incident.incident_id == incident_id).first()
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    amb = db.query(Ambulance).filter(Ambulance.ambulance_id == ambulance_id).first()
+    if not amb:
+        raise HTTPException(status_code=404, detail="Ambulance not found")
+
+    if amb.current_status != "AVAILABLE":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ambulance '{amb.registration_number}' is not currently available for dispatch (status: {amb.current_status})."
+        )
+
+    now = datetime.datetime.utcnow()
+    amb.current_status = "DISPATCHED"
+
+    status_hist = AmbulanceStatusHistory(
+        status_history_id=f"ASH_{uuid.uuid4().hex[:8].upper()}",
+        ambulance_id=amb.ambulance_id,
+        status="DISPATCHED",
+        start_time=now,
+        reason=f"Dispatched by operator {current_user.username}"
+    )
+    db.add(status_hist)
+
+    assignment = ResponderAssignment(
+        assignment_id=f"ASN_{uuid.uuid4().hex[:8].upper()}",
+        incident_id=incident_id,
+        responder_user_id=current_user.user_id,
+        resource_id=amb.ambulance_id,
+        status="DISPATCHED",
+        assigned_at=now
+    )
+    db.add(assignment)
+
+    timeline_rec = IncidentTimelineEvent(
+        event_id=f"EVT_{uuid.uuid4().hex[:8].upper()}",
+        incident_id=incident_id,
+        status="DISPATCHED",
+        title="Ambulance Dispatched",
+        description=f"Ambulance {amb.registration_number} dispatched to scene by operator {current_user.full_name}.",
+        actor_name=current_user.full_name,
+        actor_role="CONTROL_OPERATOR",
+        timestamp=now
+    )
+    db.add(timeline_rec)
+
+    log_audit_event(
+        db,
+        action="DISPATCH",
+        entity_name="ambulance",
+        entity_id=amb.ambulance_id,
+        user=current_user,
+        details=f"Operator dispatched ambulance {amb.registration_number} to incident {incident_id}",
+        new_value={"incident_id": incident_id, "status": "DISPATCHED"}
+    )
+    db.commit()
+    return {"status": "DISPATCHED", "ambulance_id": amb.ambulance_id, "incident_id": incident_id}
+
+@router.post("/referral/{incident_id}/refer-hospital")
+def refer_hospital(
+    incident_id: str,
+    hospital_id: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: UserAccount = Depends(require_role("CONTROL_OPERATOR", "ADMINISTRATOR", "ADMIN"))
+):
+    """
+    Submits a hospital placement and referral proposal for an incident.
+    """
+    inc = db.query(Incident).filter(Incident.incident_id == incident_id).first()
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    hosp = db.query(Hospital).filter(Hospital.hospital_id == hospital_id).first()
+    if not hosp:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+
+    now = datetime.datetime.utcnow()
+    assignment_id = f"REF_{uuid.uuid4().hex[:8].upper()}"
+    new_referral = HospitalAssignment(
+        assignment_id=assignment_id,
+        incident_id=incident_id,
+        hospital_id=hospital_id,
+        assigned_at=now,
+        status="PROPOSED",
+        requested_by_user_id=current_user.user_id
+    )
+    db.add(new_referral)
+
+    log_audit_event(
+        db,
+        action="REFERRAL",
+        entity_name="hospital_referral",
+        entity_id=assignment_id,
+        user=current_user,
+        details=f"Operator proposed patient transfer to {hosp.name} for incident {incident_id}",
+        new_value={"incident_id": incident_id, "hospital_id": hospital_id, "status": "PROPOSED"}
+    )
+    db.commit()
+    return {"status": "PROPOSED", "assignment_id": assignment_id, "hospital_id": hospital_id, "incident_id": incident_id}
+
+

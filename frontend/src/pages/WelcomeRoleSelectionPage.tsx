@@ -3,10 +3,18 @@ import {
   Shield, Radio, Building2, Truck, BarChart3, Settings, 
   ArrowRight, Search, Lock, User, Mail, Eye, EyeOff, 
   AlertTriangle, CheckCircle2, ChevronRight, X, HeartPulse,
-  PhoneCall, LifeBuoy, FileText, Clock, Sparkles
+  PhoneCall, LifeBuoy, FileText, Clock, Sparkles, Phone, KeyRound, ShieldCheck
 } from 'lucide-react';
 import { User as UserType, RoleType, PublicTrackedIncident } from '../types';
 import { authApi, incidentsApi } from '../services/api';
+import { 
+  initRecaptchaVerifier, 
+  sendPhoneOtp, 
+  verifyPhoneOtp, 
+  isFirebaseConfigured 
+} from '../utils/firebase';
+
+
 
 interface WelcomeRoleSelectionPageProps {
   onSelectRole: (role: RoleType) => void;
@@ -51,6 +59,16 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Firebase OTP State
+  const [authMethod, setAuthMethod] = useState<'password' | 'otp'>('password');
+  const [phoneNumber, setPhoneNumber] = useState('+91 ');
+  const [otpCode, setOtpCode] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<any>(null);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+
 
   // Quick Tracker State
   const [quickTrackCode, setQuickTrackCode] = useState('');
@@ -148,14 +166,102 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
   const handleCardClick = (role: RoleCardConfig) => {
     setSelectedRoleForAuth(role);
     setAuthMode('login');
+    setAuthMethod('password');
     setAuthError(null);
     setAuthSuccess(null);
     setInvitationCode('');
     setUsername('');
     setPassword('');
+    setPhoneNumber('+91 ');
+    setOtpCode('');
+    setOtpSent(false);
+    setConfirmationResult(null);
+  };
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthSuccess(null);
+
+    const cleanPhone = phoneNumber.replace(/[\s-]/g, '');
+    if (!cleanPhone.startsWith('+') || cleanPhone.length < 10) {
+      setAuthError('Please enter a valid international phone number starting with + (e.g. +919876543210).');
+      return;
+    }
+
+    try {
+      setOtpSending(true);
+      const verifier = initRecaptchaVerifier('recaptcha-container');
+      const confirmation = await sendPhoneOtp(cleanPhone, verifier);
+      setConfirmationResult(confirmation);
+      setOtpSent(true);
+      setAuthSuccess(`Verification code dispatched via SMS to ${cleanPhone}. Enter code to verify identity.`);
+      setOtpCooldown(60);
+      const timer = setInterval(() => {
+        setOtpCooldown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (err: any) {
+      console.error('Firebase sendPhoneOtp error:', err);
+      setAuthError(err.message || 'Failed to dispatch SMS verification code. Please check your network and phone number format.');
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpCode || otpCode.trim().length < 6) {
+      setAuthError('Please enter the 6-digit verification code received on your phone.');
+      return;
+    }
+
+    setAuthError(null);
+    setAuthSuccess(null);
+    setLoading(true);
+
+    try {
+      if (!confirmationResult) {
+        throw new Error('Verification session has expired. Please request a new code.');
+      }
+
+      const idToken = await verifyPhoneOtp(confirmationResult, otpCode.trim());
+      const targetRole = selectedRoleForAuth?.id || 'REPORTER';
+
+      const authData = await authApi.firebaseLogin({
+        firebase_token: idToken,
+        requested_role: targetRole,
+        invitation_code: invitationCode.trim() || undefined,
+        full_name: fullName.trim() || undefined
+      });
+
+      const authenticatedUser: UserType = {
+        user_id: authData.user_id,
+        username: authData.username,
+        role: authData.role,
+        full_name: authData.full_name,
+        email: authData.email,
+        access_token: authData.access_token,
+        organization_id: authData.organization_id,
+        is_active: authData.is_active
+      };
+
+      onLoginSuccess(authenticatedUser, authData.role as RoleType);
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || err.message || 'OTP verification failed.';
+      setAuthError(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
+
     e.preventDefault();
     setAuthError(null);
     setAuthSuccess(null);
@@ -529,8 +635,153 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
               </div>
             )}
 
-            {/* Auth Form */}
-            <form onSubmit={handleAuthSubmit} className="space-y-4">
+            {/* Method Selector: Firebase Real OTP vs Password */}
+            <div className="flex rounded-xl bg-zinc-900/90 border border-zinc-800 p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMethod('password');
+                  setAuthError(null);
+                }}
+                className={`flex-1 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  authMethod === 'password'
+                    ? 'bg-zinc-800 text-zinc-100 font-bold shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5 text-zinc-400" />
+                <span>Credentials</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMethod('otp');
+                  setAuthError(null);
+                }}
+                className={`flex-1 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  authMethod === 'otp'
+                    ? 'bg-zinc-800 text-cyan-300 font-bold shadow-sm border border-cyan-500/30'
+                    : 'text-zinc-400 hover:text-cyan-300'
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Firebase Phone OTP</span>
+              </button>
+            </div>
+
+            {/* Recaptcha Anchor */}
+            <div id="recaptcha-container"></div>
+
+            {/* Firebase OTP Mode */}
+            {authMethod === 'otp' && (
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl bg-cyan-950/20 border border-cyan-500/20 text-xs text-cyan-300 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-cyan-200">
+                    <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                    <span>Real-Time Two-Factor Verification</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 font-sans leading-relaxed">
+                    Firebase sends an authentic SMS one-time passcode to your mobile device. Verified UID is securely mapped to your persistent relational profile.
+                  </p>
+                </div>
+
+                {!otpSent ? (
+                  <form onSubmit={handleSendOtp} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1.5">Mobile Phone Number</label>
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          required
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          placeholder="+91 98765 43210"
+                          className="w-full pl-3.5 pr-10 py-2.5 bg-[#080B13] border border-zinc-800 focus:border-cyan-500 rounded-xl text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none font-mono"
+                        />
+                        <Phone className="absolute right-3.5 top-3 w-4 h-4 text-zinc-600 pointer-events-none" />
+                      </div>
+                      <span className="text-[11px] text-zinc-500 mt-1 block">Include international country code prefix (+91 for India).</span>
+                    </div>
+
+                    {(selectedRoleForAuth.id === 'ADMINISTRATOR' || selectedRoleForAuth.id === 'CONTROL_OPERATOR') && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                            <Lock className="w-3.5 h-3.5" />
+                            Administrative Authorization Code
+                          </label>
+                          <span className="text-[10px] text-amber-400 font-mono font-bold">Privileged Role</span>
+                        </div>
+                        <input
+                          type="password"
+                          value={invitationCode}
+                          onChange={(e) => setInvitationCode(e.target.value)}
+                          placeholder="Enter authorization code"
+                          className="w-full px-3.5 py-2.5 bg-[#080B13] border border-amber-500/40 focus:border-amber-400 rounded-xl text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none font-mono"
+                        />
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={otpSending}
+                      className="w-full py-2.5 px-4 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-cyan-950/50 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {otpSending ? 'Dispatching SMS...' : 'Send Firebase OTP'}
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleVerifyOtp} className="space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-semibold text-zinc-300">Enter 6-Digit OTP</label>
+                        <span className="text-[11px] text-cyan-400 font-mono">Sent to {phoneNumber}</span>
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value)}
+                        placeholder="123456"
+                        className="w-full px-3.5 py-2.5 bg-[#080B13] border border-cyan-500/50 focus:border-cyan-400 rounded-xl text-center text-lg font-mono tracking-widest text-zinc-100 focus:outline-none"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-950/50 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {loading ? 'Verifying with Firebase...' : 'Verify Code & Sign In'}
+                    </button>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setOtpSent(false)}
+                        className="text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                      >
+                        Change Phone Number
+                      </button>
+                      <button
+                        type="button"
+                        disabled={otpCooldown > 0}
+                        onClick={handleSendOtp}
+                        className="text-[11px] text-cyan-400 hover:underline disabled:opacity-40 cursor-pointer"
+                      >
+                        {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : 'Resend Code'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Standard Credentials Mode */}
+            {authMethod === 'password' && (
+              <form onSubmit={handleAuthSubmit} className="space-y-4">
+
               {authMode === 'register' && (
                 <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/30 flex items-center justify-between text-xs text-cyan-300">
                   <span className="text-zinc-400">Assigned Role:</span>
@@ -656,8 +907,10 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
+          )}
 
             {/* Bottom Toggle between login / register */}
+
             <div className="pt-2 text-center text-xs text-zinc-400">
               {authMode === 'login' ? (
                 <span>

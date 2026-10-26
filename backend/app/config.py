@@ -45,11 +45,25 @@ class Settings(BaseModel):
     # Privileged Role Authorization Code
     PRIVILEGED_INVITATION_CODE: str = os.getenv("PRIVILEGED_INVITATION_CODE", "TERA-OPERATIONS-SECURE-2026")
 
+    # Firebase Authentication Settings
+    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "")
+    FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
+    FIREBASE_CREDENTIALS_JSON: str = os.getenv("FIREBASE_CREDENTIALS_JSON", "")
+    ENABLE_FIREBASE_AUTH: bool = os.getenv("ENABLE_FIREBASE_AUTH", "true").lower() in ["true", "1", "yes"]
+
+    # PDF Storage Settings
+    PDF_STORAGE_DIR: str = os.getenv(
+        "PDF_STORAGE_DIR",
+        "/tmp/reports" if (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")) else str(BASE_DIR / "reports")
+    )
+
 settings = Settings()
 
-# Ensure uploads directory exists safely
+# Ensure uploads and reports directories exist safely
 try:
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    os.makedirs(settings.PDF_STORAGE_DIR, exist_ok=True)
 except OSError:
     pass
+
 

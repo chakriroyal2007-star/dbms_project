@@ -28,6 +28,11 @@ def run_migrations():
     # UserAccount additions
     add_col_if_missing("user_account", "organization_id", "VARCHAR(64)")
     add_col_if_missing("user_account", "phone_number", "VARCHAR(32)")
+    add_col_if_missing("user_account", "firebase_uid", "VARCHAR(128)")
+    add_col_if_missing("user_account", "approval_status", "VARCHAR(32) DEFAULT 'APPROVED'")
+    add_col_if_missing("user_account", "approval_notes", "TEXT")
+    add_col_if_missing("user_account", "approved_by_user_id", "VARCHAR(64)")
+    add_col_if_missing("user_account", "approved_at", "TIMESTAMP")
 
     # Incident additions
     add_col_if_missing("incident", "tracking_code", "VARCHAR(32)")
@@ -44,6 +49,24 @@ def run_migrations():
     add_col_if_missing("incident", "timeline_events_json", "JSON")
     add_col_if_missing("incident", "linked_duplicate_id", "VARCHAR(64)")
     add_col_if_missing("incident", "resolution_notes", "TEXT")
+    add_col_if_missing("incident", "idempotency_key", "VARCHAR(128)")
+    add_col_if_missing("incident", "readiness_score", "FLOAT")
+    add_col_if_missing("incident", "readiness_details_json", "JSON")
+    add_col_if_missing("incident", "hazards_reported", "TEXT")
+    add_col_if_missing("incident", "injuries_reported", "TEXT")
+    add_col_if_missing("incident", "operator_notes", "TEXT")
+    add_col_if_missing("incident", "pdf_status", "VARCHAR(32) DEFAULT 'PENDING'")
+    add_col_if_missing("incident", "pdf_path", "VARCHAR(255)")
+    add_col_if_missing("incident", "pdf_version", "INTEGER DEFAULT 1")
+    add_col_if_missing("incident", "pdf_generated_at", "TIMESTAMP")
+    add_col_if_missing("incident", "pdf_hash", "VARCHAR(64)")
+
+    # HospitalAssignment additions
+    add_col_if_missing("hospital_assignment", "requested_by_user_id", "VARCHAR(64)")
+    add_col_if_missing("hospital_assignment", "responded_by_user_id", "VARCHAR(64)")
+    add_col_if_missing("hospital_assignment", "responded_at", "TIMESTAMP")
+    add_col_if_missing("hospital_assignment", "rejection_reason", "TEXT")
+
 
     # Audit user roles for integrity
     valid_roles = {"ADMINISTRATOR", "ADMIN", "CONTROL_OPERATOR", "HOSPITAL_COORDINATOR", "FIELD_RESPONDER", "ANALYST", "REPORTER"}

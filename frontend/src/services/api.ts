@@ -54,6 +54,28 @@ export const authApi = {
     }
     return res.data;
   },
+  firebaseLogin: async (data: {
+    firebase_token: string;
+    requested_role?: string;
+    invitation_code?: string;
+    full_name?: string;
+    email?: string;
+  }) => {
+    const res = await api.post('/auth/firebase-login', data);
+    if (res.data?.access_token) {
+      localStorage.setItem('tera_token', res.data.access_token);
+      localStorage.setItem('tera_user', JSON.stringify(res.data));
+    }
+    return res.data;
+  },
+  approveUser: async (userId: string, notes?: string) => {
+    const res = await api.post(`/auth/users/${userId}/approve`, null, { params: { notes } });
+    return res.data;
+  },
+  suspendUser: async (userId: string, reason?: string) => {
+    const res = await api.post(`/auth/users/${userId}/suspend`, null, { params: { reason } });
+    return res.data;
+  },
   logout: () => {
     localStorage.removeItem('tera_token');
     localStorage.removeItem('tera_user');
@@ -182,8 +204,16 @@ export const incidentsApi = {
   delete: async (incidentId: string) => {
     const res = await api.delete(`/incidents/${incidentId}`);
     return res.data;
+  },
+  getPdfUrl: (incidentId: string, trackingToken?: string) => {
+    const base = `/api/incidents/${encodeURIComponent(incidentId)}/pdf`;
+    if (trackingToken) {
+      return `${base}?tracking_token=${encodeURIComponent(trackingToken)}`;
+    }
+    return base;
   }
 };
+
 
 export const ambulancesApi = {
   getAll: async (params?: { status?: string; ambulance_type?: string; limit?: number }) => {
@@ -348,8 +378,19 @@ export const coordinationApi = {
       params: { icu_available: icu, emergency_available: er, general_available: gen, hospital_status: status }
     });
     return res.data;
+  },
+  getHospitalReferrals: async () => {
+    const res = await api.get('/coordination/hospital/referrals');
+    return res.data;
+  },
+  respondReferral: async (assignmentId: string, action: string, reason?: string) => {
+    const res = await api.post(`/coordination/hospital/referrals/${assignmentId}/respond`, null, {
+      params: { action, reason }
+    });
+    return res.data;
   }
 };
+
 
 export const voiceApi = {
   transcribeAudio: async (audioFile: File) => {

@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from app.models.models import (
     Incident, Hospital, Ambulance, Road, EmergencyTeam,
     ResourceAllocation, HospitalAssignment, HospitalCapacityHistory,
-    RoadStatusHistory, Patient
+    RoadStatusHistory, Patient, AmbulanceStatusHistory
 )
+
 
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Haversine distance formula in kilometers."""
@@ -254,16 +255,31 @@ def commit_allocation_transaction(db: Session, plan: Dict[str, Any], user_id: Op
                 status="ACTIVE"
             ))
 
-        # 2. Dispatch Ambulances
+        # 2. Dispatch Ambulances with Concurrency & Double-Booking Guard
         for amb_id in plan.get("dispatched_ambulances", []):
             try:
                 amb = db.query(Ambulance).filter(Ambulance.ambulance_id == amb_id).with_for_update().first()
             except Exception:
                 amb = db.query(Ambulance).filter(Ambulance.ambulance_id == amb_id).first()
                 
-            if amb:
-                amb.current_status = "DISPATCHED"
-                
+            if not amb:
+                raise ValueError(f"Ambulance {amb_id} not found in fleet records.")
+
+            if amb.current_status != "AVAILABLE":
+                raise ValueError(
+                    f"Ambulance Contention Conflict: Ambulance {amb.registration_number} ({amb_id}) is no longer available (Current Status: {amb.current_status}). Cannot double-book."
+                )
+
+            amb.current_status = "DISPATCHED"
+            
+            db.add(AmbulanceStatusHistory(
+                status_history_id=f"ASH_{amb_id}_{now.strftime('%H%M%S%f')[:10]}",
+                ambulance_id=amb_id,
+                status="DISPATCHED",
+                start_time=now,
+                reason=f"Dispatched to incident {inc_id} by operator"
+            ))
+
             db.add(ResourceAllocation(
                 allocation_id=f"ALLOC_AMB_{amb_id}_{now.strftime('%H%M%S%f')[:10]}",
                 incident_id=inc_id,
@@ -272,6 +288,7 @@ def commit_allocation_transaction(db: Session, plan: Dict[str, Any], user_id: Op
                 quantity=1,
                 status="ACTIVE"
             ))
+
 
         # 3. Deploy Emergency Teams
         for team_id in plan.get("dispatched_teams", []):

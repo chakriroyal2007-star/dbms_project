@@ -33,6 +33,8 @@ Thumbs.db
 .vercel/
 frontend/.vercel/
 
-# Uploaded evidence files
+# Uploaded evidence and generated report files
 backend/uploads/*
 !backend/uploads/.gitkeep
+backend/reports/*.pdf
+!backend/reports/.gitkeep

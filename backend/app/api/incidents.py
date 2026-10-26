@@ -1,11 +1,14 @@
+import os
 import datetime
 import uuid
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from app.config import settings
 from app.database.session import get_db
 from app.models.models import (
-    Incident, Patient, UserAccount, IncidentTimelineEvent, ResponderAssignment
+    Incident, Patient, UserAccount, IncidentTimelineEvent, ResponderAssignment, ResourceAllocation
 )
 from app.schemas.schemas import (
     IncidentCreate, IncidentUpdate, IncidentResponse, 
@@ -15,8 +18,77 @@ from app.schemas.schemas import (
 )
 from app.api.auth import get_current_user, require_role
 from app.services.audit_service import log_audit_event
+from app.services.readiness_service import calculate_operational_readiness_score
+from app.services.pdf_service import generate_incident_pdf
 
 router = APIRouter(prefix="/incidents", tags=["Incidents & Reporting"])
+
+def build_incident_pdf_payload(inc: Incident, db: Session) -> Dict[str, Any]:
+    allocs = db.query(ResourceAllocation).filter(ResourceAllocation.incident_id == inc.incident_id).all()
+    alloc_list = [
+        {
+            "allocation_id": a.allocation_id,
+            "resource_type": a.resource_type,
+            "resource_id": a.resource_id,
+            "status": a.status,
+            "quantity": a.quantity
+        }
+        for a in allocs
+    ]
+    return {
+        "incident_id": inc.incident_id,
+        "tracking_code": inc.tracking_code,
+        "status": inc.status,
+        "severity": inc.severity,
+        "incident_type": inc.incident_type,
+        "reported_at": inc.reported_at,
+        "occurred_at": inc.occurred_at,
+        "latitude": inc.latitude,
+        "longitude": inc.longitude,
+        "location_accuracy_meters": inc.location_accuracy_meters,
+        "is_location_verified": inc.is_location_verified,
+        "location_name": inc.location_name,
+        "landmark": inc.landmark,
+        "locality": inc.locality,
+        "city": inc.city,
+        "district": inc.district,
+        "state": inc.state,
+        "country": inc.country,
+        "description": inc.description,
+        "injuries_reported": inc.injuries_reported,
+        "hazards_reported": inc.hazards_reported,
+        "estimated_patient_count": inc.estimated_patient_count,
+        "voice_transcript": inc.voice_transcript,
+        "detected_language": inc.detected_language,
+        "structured_extraction_json": inc.structured_extraction_json,
+        "evidence_urls_json": inc.evidence_urls_json,
+        "reporter_name": inc.reporter_name,
+        "reporter_phone": inc.reporter_phone,
+        "reporter_id": inc.reporter_id,
+        "reporter_consent": inc.reporter_consent,
+        "readiness_score": inc.readiness_score,
+        "readiness_details_json": inc.readiness_details_json,
+        "allocations": alloc_list,
+        "timeline_events_json": inc.timeline_events_json,
+        "pdf_version": getattr(inc, "pdf_version", 1) or 1
+    }
+
+def try_generate_pdf_for_incident(inc: Incident, db: Session) -> None:
+    try:
+        os.makedirs(settings.PDF_STORAGE_DIR, exist_ok=True)
+        pdf_filename = f"TERA_Report_{inc.incident_id}_v{inc.pdf_version or 1}.pdf"
+        target_path = os.path.join(settings.PDF_STORAGE_DIR, pdf_filename)
+        data = build_incident_pdf_payload(inc, db)
+        pdf_res = generate_incident_pdf(data, target_path)
+        inc.pdf_status = "READY"
+        inc.pdf_path = target_path
+        inc.pdf_hash = pdf_res.get("pdf_hash")
+        inc.pdf_generated_at = datetime.datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        inc.pdf_status = "FAILED_RETRYABLE"
+        db.commit()
+
 
 VALID_TRANSITIONS = {
     "DRAFT": ["SUBMITTED", "CANCELLED"],
@@ -188,18 +260,68 @@ def report_emergency_incident(
 ):
     """
     Public Bystander / Citizen Emergency Reporting Endpoint.
-    - Does not require account registration.
-    - Generates and persists a durable tracking code & secret tracking token.
-    - Records initial audit event and timeline milestone.
-    - Does NOT fabricate fake patient ages or severity records.
+    - Idempotency Protected: Retries with same key return existing persisted report.
+    - Transparent Operational Readiness Scoring: Evaluates data completeness version 2.0.
+    - Asynchronous / Non-blocking PDF Generation: Creates official incident report document.
+    - Durable Persistence before returning success response.
     """
+    # 1. Idempotency Check
+    if data.idempotency_key and data.idempotency_key.strip():
+        existing_inc = db.query(Incident).filter(Incident.idempotency_key == data.idempotency_key.strip()).first()
+        if existing_inc:
+            return {
+                "incident_id": existing_inc.incident_id,
+                "incident_type": existing_inc.incident_type,
+                "location_name": existing_inc.location_name,
+                "country": existing_inc.country,
+                "state": existing_inc.state,
+                "district": existing_inc.district,
+                "city": existing_inc.city,
+                "locality": existing_inc.locality,
+                "landmark": existing_inc.landmark,
+                "latitude": existing_inc.latitude,
+                "longitude": existing_inc.longitude,
+                "severity": existing_inc.severity,
+                "estimated_patient_count": existing_inc.estimated_patient_count,
+                "reported_at": existing_inc.reported_at,
+                "status": existing_inc.status,
+                "reporter_id": existing_inc.reporter_id,
+                "tracking_code": existing_inc.tracking_code,
+                "tracking_token": existing_inc.tracking_token or "",
+                "message": "Emergency report previously registered in TERA (Idempotent replay).",
+                "timeline_events": existing_inc.timeline_events_json or [],
+                "voice_transcript": existing_inc.voice_transcript,
+                "structured_extraction": existing_inc.structured_extraction_json,
+                "readiness_score": existing_inc.readiness_score,
+                "readiness_details": existing_inc.readiness_details_json,
+                "pdf_status": existing_inc.pdf_status
+            }
+
+    # 2. Compute Operational Readiness Score
+    has_audio = bool(data.voice_transcript and len(data.voice_transcript.strip()) > 5)
+    has_photo = bool(data.evidence_urls and len(data.evidence_urls) > 0)
+    readiness_assessment = calculate_operational_readiness_score(
+        latitude=data.latitude,
+        longitude=data.longitude,
+        location_accuracy_meters=data.location_accuracy_meters,
+        location_name=data.location_name or data.address or "Reported Location",
+        landmark=data.landmark,
+        description=data.description,
+        incident_type=data.incident_type,
+        estimated_patient_count=data.casualties if data.casualties is not None else data.estimated_patient_count,
+        injuries_reported=data.injuries_reported,
+        hazards_reported=data.hazards_reported,
+        reporter_contact=data.reporter_contact or data.caller_phone,
+        has_audio_transcript=has_audio,
+        has_photo_evidence=has_photo
+    )
+
     inc_id = f"INC_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4].upper()}"
     occ_time = datetime.datetime.utcnow()
     tracking_code = f"TRK-{occ_time.strftime('%y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
     tracking_token = uuid.uuid4().hex
-    
     rep_id = current_user.user_id if current_user else None
-    
+
     initial_event = {
         "status": "RECEIVED",
         "title": "Report Submitted & Received",
@@ -207,14 +329,14 @@ def report_emergency_incident(
         "actor_role": "PUBLIC_REPORTER",
         "timestamp": occ_time.isoformat()
     }
-    
+
     new_inc = Incident(
         incident_id=inc_id,
         tracking_code=tracking_code,
         tracking_token=tracking_token,
         reporter_id=rep_id,
-        reporter_name=data.reporter_name or (current_user.full_name if current_user else "Bystander Informant"),
-        reporter_phone=data.reporter_contact,
+        reporter_name=data.reporter_name or data.caller_name or (current_user.full_name if current_user else "Bystander Informant"),
+        reporter_phone=data.reporter_contact or data.caller_phone,
         reporter_consent=data.reporter_consent,
         incident_type=data.incident_type.upper(),
         description=data.description,
@@ -229,21 +351,28 @@ def report_emergency_incident(
         city=data.city or "Tirupati",
         locality=data.locality,
         landmark=data.landmark,
-        location_name=data.location_name,
+        location_name=data.location_name or data.address or "Reported Location",
         occurred_at=occ_time,
         reported_at=occ_time,
         status="RECEIVED",
-        estimated_patient_count=max(0, data.estimated_patient_count),
+        estimated_patient_count=max(0, data.casualties if data.casualties is not None else data.estimated_patient_count),
         voice_transcript=data.voice_transcript,
         detected_language=data.detected_language or "en",
         structured_extraction_json=data.structured_extraction,
         evidence_urls_json=data.evidence_urls or [],
         timeline_events_json=[initial_event],
+        idempotency_key=data.idempotency_key.strip() if data.idempotency_key else None,
+        readiness_score=readiness_assessment["total_score"],
+        readiness_details_json=readiness_assessment,
+        hazards_reported=data.hazards_reported,
+        injuries_reported=data.injuries_reported,
+        pdf_status="PENDING",
+        pdf_version=1,
         created_at=occ_time,
         updated_at=occ_time
     )
     db.add(new_inc)
-    
+
     # Add initial persistent timeline record
     timeline_rec = IncidentTimelineEvent(
         event_id=f"EVT_{uuid.uuid4().hex[:8].upper()}",
@@ -256,25 +385,30 @@ def report_emergency_incident(
         timestamp=occ_time
     )
     db.add(timeline_rec)
-    
+
     log_audit_event(
         db,
         action="REPORT",
         entity_name="incident",
         entity_id=inc_id,
         user=current_user,
-        details=f"Field emergency reported: {data.incident_type} at {data.location_name} (Tracking: {tracking_code})",
+        details=f"Field emergency reported: {data.incident_type} at {data.location_name} (Tracking: {tracking_code}, Readiness: {readiness_assessment['total_score']}/100)",
         new_value={
             "type": data.incident_type, 
             "severity": data.severity, 
             "patients": data.estimated_patient_count, 
-            "tracking_code": tracking_code
+            "tracking_code": tracking_code,
+            "readiness_score": readiness_assessment["total_score"]
         }
     )
-    
+
+    # Durably commit incident first!
     db.commit()
     db.refresh(new_inc)
-    
+
+    # 3. Non-blocking PDF Generation
+    try_generate_pdf_for_incident(new_inc, db)
+
     return {
         "incident_id": new_inc.incident_id,
         "incident_type": new_inc.incident_type,
@@ -297,8 +431,12 @@ def report_emergency_incident(
         "message": "Emergency report successfully registered in TERA. Keep this tracking code to monitor real-time response status.",
         "timeline_events": [initial_event],
         "voice_transcript": new_inc.voice_transcript,
-        "structured_extraction": new_inc.structured_extraction_json
+        "structured_extraction": new_inc.structured_extraction_json,
+        "readiness_score": new_inc.readiness_score,
+        "readiness_details": new_inc.readiness_details_json,
+        "pdf_status": new_inc.pdf_status
     }
+
 
 @router.post("", response_model=IncidentResponse)
 def create_incident(
@@ -444,7 +582,11 @@ def transition_incident_status(
     )
     
     db.commit()
+    inc.pdf_version = (inc.pdf_version or 1) + 1
+    try_generate_pdf_for_incident(inc, db)
+
     return {
+
         "status": "success",
         "incident_id": incident_id,
         "previous_status": old_status,
@@ -508,3 +650,61 @@ def delete_incident(
     )
     db.commit()
     return {"status": "success", "deleted_incident_id": incident_id}
+
+@router.get("/{incident_id}/pdf")
+def get_incident_pdf_document(
+    incident_id: str,
+    tracking_token: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Optional[UserAccount] = Depends(get_current_user)
+):
+    """
+    Secure Incident PDF Document retrieval endpoint.
+    - RBAC Protection: Control Operators, Hospital Coordinators, Responders, Analysts, Admins.
+    - Public Guests: Accessible with matching secret tracking token from their report receipt.
+    - Regenerates or updates report on the fly if document is missing or stale.
+    - Sets safe content headers and file naming.
+    """
+    inc = db.query(Incident).filter(Incident.incident_id == incident_id).first()
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    is_authorized = False
+    if current_user:
+        if current_user.role.upper() in ["ADMINISTRATOR", "ADMIN", "CONTROL_OPERATOR", "ANALYST", "HOSPITAL_COORDINATOR", "FIELD_RESPONDER"]:
+            is_authorized = True
+        elif current_user.user_id == inc.reporter_id:
+            is_authorized = True
+
+    if not is_authorized and tracking_token and inc.tracking_token and inc.tracking_token == tracking_token.strip():
+        is_authorized = True
+
+    if not is_authorized:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Valid authenticated operator credentials or guest tracking token required to view official incident report."
+        )
+
+    # Check if PDF exists on disk; if not, generate now
+    pdf_path = inc.pdf_path
+    if not pdf_path or not os.path.exists(pdf_path):
+        try_generate_pdf_for_incident(inc, db)
+        pdf_path = inc.pdf_path
+
+    if not pdf_path or not os.path.exists(pdf_path):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Incident PDF document could not be rendered at this time. Please retry shortly."
+        )
+
+    safe_filename = f"TERA_Incident_Report_{inc.incident_id}.pdf"
+    return FileResponse(
+        path=pdf_path,
+        media_type="application/pdf",
+        filename=safe_filename,
+        headers={
+            "Content-Disposition": f"inline; filename=\"{safe_filename}\"",
+            "Cache-Control": "private, no-cache, no-store, must-revalidate"
+        }
+    )
+
