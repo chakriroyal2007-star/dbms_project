@@ -1,7 +1,11 @@
+import os
+import shutil
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import settings
+from app.config import settings, BASE_DIR
 from app.database.session import engine, Base, SessionLocal
+from app.models.models import UserAccount
 from app.services.seed_service import seed_database
 from app.api import (
     auth, dashboard, incidents, ambulances, hospitals,
@@ -10,13 +14,26 @@ from app.api import (
     evidence, coordination, voice, geocoding
 )
 
+# On Vercel runtime with ephemeral SQLite: bootstrap from packaged DB or seed baseline
+if os.getenv("VERCEL") and "sqlite" in settings.DATABASE_URL:
+    packaged_db = BASE_DIR / "tera.db"
+    tmp_db = Path("/tmp/tera.db")
+    if packaged_db.exists() and (not tmp_db.exists() or tmp_db.stat().st_size == 0):
+        try:
+            shutil.copyfile(str(packaged_db), str(tmp_db))
+        except Exception:
+            pass
+
 # Initialize database schema tables
 Base.metadata.create_all(bind=engine)
 
-# Auto seed if empty and allowed (disabled by default in production)
-if settings.ALLOW_AUTO_SEED and settings.ENVIRONMENT.lower() != "production":
+# Ensure baseline accounts and infrastructure exist if user table is empty
+try:
     with SessionLocal() as db:
-        seed_database(db=db, force_reset=False)
+        if not db.query(UserAccount).first():
+            seed_database(db=db, force_reset=False)
+except Exception:
+    pass
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
