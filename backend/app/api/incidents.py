@@ -662,6 +662,7 @@ def delete_incident(
 def get_incident_pdf_document(
     incident_id: str,
     tracking_token: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Optional[UserAccount] = Depends(get_current_user)
 ):
@@ -683,7 +684,8 @@ def get_incident_pdf_document(
         elif current_user.user_id == inc.reporter_id:
             is_authorized = True
 
-    if not is_authorized and tracking_token and inc.tracking_token and inc.tracking_token == tracking_token.strip():
+    user_token = (tracking_token or token or "").strip()
+    if not is_authorized and user_token and inc.tracking_token and inc.tracking_token == user_token:
         is_authorized = True
 
     if not is_authorized:

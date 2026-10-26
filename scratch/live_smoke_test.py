@@ -58,14 +58,25 @@ try:
             track_data = json.loads(track_resp.read().decode('utf-8'))
             print(f"✅ /api/incidents/track/{inc_id} HTTP {track_resp.status}: Status={track_data.get('status')}, Readiness={track_data.get('readiness_score')}")
 
-        # 4. Test PDF Endpoint
-        pdf_url = f"{BASE_URL}/api/incidents/{inc_id}/pdf"
+        # 4a. Verify Unauthenticated PDF Access is Denied (Negative Authorization)
+        try:
+            req_pdf_unauth = urllib.request.Request(f"{BASE_URL}/api/incidents/{inc_id}/pdf", headers={"User-Agent": "TERA-SmokeTest/1.0"})
+            with urllib.request.urlopen(req_pdf_unauth, context=ctx, timeout=10) as pdf_unauth_resp:
+                print(f"❌ Security violation: PDF accessible without tracking token!")
+        except urllib.error.HTTPError as pe:
+            if pe.code == 403:
+                print(f"✅ Negative authorization verified: PDF denied without tracking token (HTTP {pe.code})")
+            else:
+                print(f"⚠️ Unexpected PDF status: {pe.code}")
+
+        # 4b. Test Authorized PDF Download with Tracking Token
+        pdf_url = f"{BASE_URL}/api/incidents/{inc_id}/pdf?tracking_token={tracking_token}"
         req_pdf = urllib.request.Request(pdf_url, headers={"User-Agent": "TERA-SmokeTest/1.0"})
-        with urllib.request.urlopen(req_pdf, context=ctx, timeout=15) as pdf_resp:
+        with urllib.request.urlopen(req_pdf, context=ctx, timeout=20) as pdf_resp:
             pdf_bytes = pdf_resp.read()
             is_pdf = pdf_bytes.startswith(b"%PDF")
-            print(f"✅ /api/incidents/{inc_id}/pdf HTTP {pdf_resp.status}: Received {len(pdf_bytes)} bytes, starts with %PDF={is_pdf}")
             sha256_header = pdf_resp.headers.get("X-Document-SHA256")
+            print(f"✅ /api/incidents/{inc_id}/pdf?token={tracking_token} HTTP {pdf_resp.status}: Received {len(pdf_bytes)} bytes, starts with %PDF={is_pdf}")
             print(f"   X-Document-SHA256: {sha256_header}")
 
 except urllib.error.HTTPError as e:
