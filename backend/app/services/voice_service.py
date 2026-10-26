@@ -100,29 +100,51 @@ def extract_structured_emergency_report(
     }
     casualties = "Unknown / Not specified"
     count_match = re.search(
-        r'\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:people|persons?|injured|passengers?|victims?|casualt(?:y|ies)|patients?|individuals?)',
-        lower_text
+        r'\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:affected\s+people|affected\s+persons?|people|persons?|injured(?:\s+people)?|passengers?|victims?|casualt(?:y|ies)|patients?|individuals?|casualties)',
+        lower_text,
+        re.IGNORECASE
     )
     if count_match:
-        val = count_match.group(1)
+        val = count_match.group(1).lower()
         casualties = num_map.get(val, val)
 
-    int_casualties = int(casualties) if casualties.isdigit() else casualties
+    int_casualties = int(casualties) if str(casualties).isdigit() else casualties
 
     # 3. Observed Severity: Only elevated if explicitly severe keywords are spoken
     severity = "MEDIUM"
+    triage_recommendation = "ROUTINE_OPERATOR_REVIEW"
     if any(k in lower_text for k in ["critical", "dying", "fatal", "not breathing", "unconscious", "severe bleeding", "massive", "trapped"]):
         severity = "CRITICAL"
-    elif any(k in lower_text for k in ["serious", "heavy", "broken bone", "fracture", "bad injury"]):
+        triage_recommendation = "URGENT_OPERATOR_REVIEW"
+    elif any(k in lower_text for k in ["serious", "heavy", "broken bone", "fracture", "bad injury", "collision", "accident"]):
         severity = "HIGH"
+        triage_recommendation = "PRIORITY_OPERATOR_REVIEW"
 
     # 4. Reported Location in Speech
+    known_landmarks = [
+        "tirupati bus stand", "bus stand in tirupati", "rtc central bus station", "central bus stand", "bus stand",
+        "tirupati railway station", "railway station", "alipiri checkpost", "alipiri toll gate",
+        "alipiri", "svims hospital", "svims", "svrr hospital", "ruia hospital", "birrd hospital",
+        "tirumala bypass road", "bypass road", "chandragiri road", "renigunta road", "air bypass road",
+        "kapila theertham", "korlagunta", "bhavani nagar", "leela mahal", "clock tower", "bazaar street"
+    ]
     reported_loc = "Not specified in audio"
-    loc_match = re.search(r'\b(?:at|near|on|in front of|opposite|along)\s+([a-zA-Z0-9\s,\.\-]{3,40}?)(?:\.|\band\b|\bplease\b|\bwith\b|\bthere\b|$)', effective_text, re.IGNORECASE)
-    if loc_match:
-        candidate_loc = loc_match.group(1).strip()
-        if len(candidate_loc) > 3 and not any(k in candidate_loc.lower() for k in ["help", "hurry", "injured", "fire", "accident"]):
-            reported_loc = candidate_loc
+    for lm in known_landmarks:
+        if lm in lower_text:
+            start_idx = lower_text.find(lm)
+            reported_loc = effective_text[start_idx:start_idx + len(lm)].strip()
+            break
+
+    if reported_loc == "Not specified in audio":
+        loc_match = re.search(
+            r'\b(?:at|near|on|in front of|opposite|along|location(?:\s+is|\s+at)?)\s+(?:the\s+)?([a-zA-Z0-9\s\.\-]{3,50}?)(?:[,;\.\n]|\band\b|\bplease\b|\bwith\b|\bthere\b|\bfive\b|\b\d+\s+people|\bseveral\b|$)',
+            effective_text,
+            re.IGNORECASE
+        )
+        if loc_match:
+            candidate_loc = loc_match.group(1).strip()
+            if len(candidate_loc) >= 3 and not any(k in candidate_loc.lower() for k in ["help", "hurry", "injured", "fire", "accident", "collision"]):
+                reported_loc = candidate_loc
 
     # 5. Injuries or Symptoms
     injuries = []
@@ -200,6 +222,7 @@ def extract_structured_emergency_report(
         "observed_severity": severity,
         "unknown_details": unknowns,
         "provenance": "USER_CORRECTED" if user_corrected else "MACHINE_GENERATED",
+        "triage_recommendation": triage_recommendation,
         "verification_status": "UNVERIFIED_PENDING_REVIEW"
     }
 

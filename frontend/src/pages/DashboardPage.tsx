@@ -30,6 +30,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [alerts, setAlerts] = useState<ResourceAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Active Workspace View Tab: 'queue' | 'map' | 'hospitals'
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'queue' | 'map' | 'hospitals'>('queue');
@@ -83,7 +84,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       fetchDashboardData();
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to verify incident.');
+      setActionError(err?.response?.data?.detail || 'Failed to verify incident.');
+      setTimeout(() => setActionError(null), 5000);
     }
   };
 
@@ -94,7 +96,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       fetchDashboardData();
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to activate incident.');
+      setActionError(err?.response?.data?.detail || 'Failed to activate incident.');
+      setTimeout(() => setActionError(null), 5000);
     }
   };
 
@@ -106,7 +109,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       fetchDashboardData();
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to cancel incident.');
+      setActionError(err?.response?.data?.detail || 'Failed to cancel incident.');
+      setTimeout(() => setActionError(null), 5000);
     }
   };
 
@@ -120,7 +124,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       fetchDashboardData();
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to link duplicate incident.');
+      setActionError(err?.response?.data?.detail || 'Failed to link duplicate incident.');
+      setTimeout(() => setActionError(null), 5000);
     } finally {
       setLinkingLoading(false);
     }
@@ -173,6 +178,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 flex items-center gap-2.5 animate-in fade-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{actionSuccess}</span>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="p-3 bg-rose-950/60 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-center justify-between gap-2.5 animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button onClick={() => setActionError(null)} className="text-zinc-400 hover:text-zinc-200">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

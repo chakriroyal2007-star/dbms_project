@@ -74,9 +74,11 @@ export const AdminUserManagement: React.FC = () => {
   const handleToggleStatus = async (user: any) => {
     try {
       await authApi.updateUser(user.user_id, { is_active: !user.is_active });
+      setFeedbackMsg({ type: 'success', text: `User ${user.username} status updated to ${!user.is_active ? 'Active' : 'Inactive'}.` });
       fetchData();
+      setTimeout(() => setFeedbackMsg(null), 4000);
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to update user status.');
+      setFeedbackMsg({ type: 'error', text: err?.response?.data?.detail || 'Failed to update user status.' });
     }
   };
 
@@ -84,18 +86,22 @@ export const AdminUserManagement: React.FC = () => {
     if (!window.confirm(`Are you sure you want to permanently delete user '${username}' from database?`)) return;
     try {
       await authApi.deleteUser(userId);
+      setFeedbackMsg({ type: 'success', text: `User ${username} permanently removed.` });
       fetchData();
+      setTimeout(() => setFeedbackMsg(null), 4000);
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to delete user.');
+      setFeedbackMsg({ type: 'error', text: err?.response?.data?.detail || 'Failed to delete user.' });
     }
   };
 
   const handleRoleChange = async (userId: string, newRole: string) => {
     try {
       await authApi.updateUser(userId, { role: newRole });
+      setFeedbackMsg({ type: 'success', text: `Assigned role ${newRole} to user.` });
       fetchData();
+      setTimeout(() => setFeedbackMsg(null), 4000);
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to update user role.');
+      setFeedbackMsg({ type: 'error', text: err?.response?.data?.detail || 'Failed to update user role.' });
     }
   };
 

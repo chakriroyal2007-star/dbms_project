@@ -248,3 +248,34 @@ def test_consecutive_recordings_isolation():
         assert res2.json()["transcript"] == "second recording"
         assert res1.json()["correlation_id"] != res2.json()["correlation_id"]
 
+def test_tirupati_bus_stand_lorry_car_collision_regression():
+    """
+    Regression Test for Section 7.3:
+    Transcript describing a lorry colliding with a car, five affected people, severe bleeding,
+    unconscious people and a location at Tirupati bus stand:
+    - Extract location reference to Tirupati bus stand.
+    - Preserve original transcript verbatim.
+    - Record five affected people as reported, not independently verified.
+    - Preserve reported bleeding and unconsciousness as unverified caller reports.
+    - Recommend urgent operator review under defined triage policy.
+    - Never silently replace location with a different landmark.
+    """
+    transcript = "A lorry collided with a car near the bus stand in Tirupati, five affected people, severe bleeding and unconscious people on scene."
+    res = client.post("/api/voice/extract-entities", json={"transcript": transcript})
+    assert res.status_code == 200
+    data = res.json()
+
+    # 1. Location extracted without silent replacement
+    assert "bus stand in tirupati" in data["reported_location"].lower() or "tirupati bus stand" in data["reported_location"].lower()
+    # 2. Original transcript preserved
+    assert data["original_transcript"] == transcript
+    # 3. Five affected people recorded
+    assert data["people_affected"] == "5" or data["affected_people_count"] == "5"
+    # 4. Severe bleeding and unconsciousness preserved
+    assert any("bleeding" in inj.lower() for inj in data["reported_injuries"])
+    assert any("unconscious" in inj.lower() for inj in data["reported_injuries"])
+    # 5. Observed severity is CRITICAL and urgent review recommended
+    assert data["observed_severity"] == "CRITICAL"
+    assert data["triage_recommendation"] == "URGENT_OPERATOR_REVIEW"
+
+

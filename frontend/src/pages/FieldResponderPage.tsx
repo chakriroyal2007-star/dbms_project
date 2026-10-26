@@ -155,21 +155,33 @@ export const FieldResponderPage: React.FC<FieldResponderPageProps> = ({ user }) 
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {selectedAssignment.latitude && selectedAssignment.longitude && (Math.abs(selectedAssignment.latitude) > 0.001 || Math.abs(selectedAssignment.longitude) > 0.001) ? (
+                    <a
+                      href={`https://maps.google.com/?q=${selectedAssignment.latitude},${selectedAssignment.longitude}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3.5 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      title="Open Google Maps with verified coordinates"
+                    >
+                      <Navigation className="w-4 h-4" />
+                      <span>Open GPS Nav</span>
+                    </a>
+                  ) : (
+                    <span 
+                      className="px-3.5 py-2 rounded-xl bg-zinc-800/60 border border-zinc-700/50 text-zinc-400 text-xs font-semibold flex items-center gap-1.5"
+                      title="GPS coordinates pending or not yet verified"
+                    >
+                      <Navigation className="w-4 h-4 text-zinc-500" />
+                      <span>Coords Pending</span>
+                    </span>
+                  )}
                   <a
-                    href={`https://maps.google.com/?q=${selectedAssignment.latitude},${selectedAssignment.longitude}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3.5 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                  >
-                    <Navigation className="w-4 h-4" />
-                    <span>Open GPS Nav</span>
-                  </a>
-                  <button
-                    onClick={() => alert('Direct EOC Triage Hotline: +91-877-2287777 Connected')}
-                    className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer"
+                    href="tel:+918772287777"
+                    className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer flex items-center justify-center transition-colors"
+                    title="Direct EOC Triage Hotline: +91-877-2287777"
                   >
                     <PhoneCall className="w-4 h-4" />
-                  </button>
+                  </a>
                 </div>
               </div>
 

@@ -67,7 +67,7 @@ export const IncidentsView: React.FC<{ user?: User | null }> = ({ user }) => {
       setNewLoc('');
       fetchIncidents();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to create incident.');
+      setError(err?.response?.data?.detail || 'Failed to create incident.');
     } finally {
       setSubmitting(false);
     }
@@ -79,7 +79,7 @@ export const IncidentsView: React.FC<{ user?: User | null }> = ({ user }) => {
       await incidentsApi.delete(incidentId);
       fetchIncidents();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to delete incident.');
+      setError(err?.response?.data?.detail || 'Failed to delete incident.');
     }
   };
 
@@ -362,7 +362,7 @@ export const AmbulancesView: React.FC<{ user?: User | null }> = ({ user }) => {
       await ambulancesApi.updateStatus(ambId, newStatus, "Operator status manual override");
       fetchAmbulances();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to update status.');
+      setError(err?.response?.data?.detail || 'Failed to update status.');
     }
   };
 
@@ -487,7 +487,7 @@ export const HospitalsView: React.FC<{ user?: User | null }> = ({ user }) => {
       await hospitalsApi.delete(hospitalId);
       fetchHospitals();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to delete hospital.');
+      setError(err?.response?.data?.detail || 'Failed to delete hospital.');
     }
   };
 
@@ -613,7 +613,7 @@ export const ResourcesView: React.FC<{ user?: User | null }> = ({ user }) => {
       await resourcesApi.adjust(resId, delta, "Stock adjustment from EOC");
       fetchResources();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to adjust quantity.');
+      setError(err?.response?.data?.detail || 'Failed to adjust quantity.');
     }
   };
 
@@ -701,14 +701,17 @@ export const ResourcesView: React.FC<{ user?: User | null }> = ({ user }) => {
 export const TeamsView: React.FC<{ user?: User | null }> = ({ user }) => {
   const [teams, setTeams] = useState<EmergencyTeam[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchTeams = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await teamsApi.getAll();
       setTeams(data || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setError(err?.response?.data?.detail || 'Failed to fetch teams.');
     } finally {
       setLoading(false);
     }
@@ -721,12 +724,18 @@ export const TeamsView: React.FC<{ user?: User | null }> = ({ user }) => {
       await teamsApi.updateStatus(teamId, newStatus);
       fetchTeams();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to update team status.');
+      setError(err?.response?.data?.detail || 'Failed to update team status.');
     }
   };
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto select-none">
+      {error && (
+        <div className="p-3 bg-rose-950/60 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
+        </div>
+      )}
       <div className="flex items-center justify-between pb-2 border-b border-[#1F293D]">
         <div>
           <div className="flex items-center gap-2">
@@ -798,14 +807,17 @@ export const TeamsView: React.FC<{ user?: User | null }> = ({ user }) => {
 export const RoadsView: React.FC<{ user?: User | null }> = ({ user }) => {
   const [roads, setRoads] = useState<RoadSegment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchRoads = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await roadsApi.getAll({ limit: 100 });
       setRoads(data || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setError(err?.response?.data?.detail || 'Failed to fetch road segments.');
     } finally {
       setLoading(false);
     }
@@ -818,12 +830,18 @@ export const RoadsView: React.FC<{ user?: User | null }> = ({ user }) => {
       await roadsApi.toggleBlock(roadId, !currentBlocked);
       fetchRoads();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to toggle road status.');
+      setError(err?.response?.data?.detail || 'Failed to toggle road status.');
     }
   };
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto select-none">
+      {error && (
+        <div className="p-3 bg-rose-950/60 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-zinc-400 hover:text-zinc-200">✕</button>
+        </div>
+      )}
       <div className="flex items-center justify-between pb-2 border-b border-[#1F293D]">
         <div>
           <div className="flex items-center gap-2">
