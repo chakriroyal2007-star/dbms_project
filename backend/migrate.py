@@ -45,6 +45,31 @@ def run_migrations():
     add_col_if_missing("incident", "linked_duplicate_id", "VARCHAR(64)")
     add_col_if_missing("incident", "resolution_notes", "TEXT")
 
+    # Audit user roles for integrity
+    valid_roles = {"ADMINISTRATOR", "ADMIN", "CONTROL_OPERATOR", "HOSPITAL_COORDINATOR", "FIELD_RESPONDER", "ANALYST", "REPORTER"}
+    cursor.execute("SELECT user_id, username, email, role FROM user_account")
+    user_rows = cursor.fetchall()
+    invalid_accounts = []
+    normalized_count = 0
+    for uid, uname, uemail, urole in user_rows:
+        if not urole or urole.strip() == "":
+            invalid_accounts.append((uid, uname, uemail, "MISSING_ROLE"))
+        elif urole.upper() == "ADMIN":
+            cursor.execute("UPDATE user_account SET role = 'ADMINISTRATOR' WHERE user_id = ?", (uid,))
+            normalized_count += 1
+        elif urole.upper() not in valid_roles:
+            invalid_accounts.append((uid, uname, uemail, f"INVALID_ROLE: {urole}"))
+
+    if normalized_count > 0:
+        print(f"[MIGRATION] Normalized {normalized_count} account roles from 'ADMIN' to 'ADMINISTRATOR'.")
+
+    if invalid_accounts:
+        print("[AUDIT ALERT] The following accounts have missing/invalid roles and require Administrator review:")
+        for acc in invalid_accounts:
+            print(f"  - User ID: {acc[0]}, Username: {acc[1]}, Email: {acc[2]}, Issue: {acc[3]}")
+    else:
+        print("[AUDIT] All existing user account roles are valid and mapped to canonical TERA roles.")
+
     conn.commit()
     conn.close()
     print("[MIGRATION] Database schema up to date.")

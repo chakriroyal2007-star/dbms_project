@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npx tsx src/tests/routing.test.ts"
   },
   "dependencies": {
     "axios": "^1.7.9",

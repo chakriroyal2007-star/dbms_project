@@ -12,6 +12,9 @@ class Token(BaseModel):
     username: str
     full_name: str
     email: Optional[str] = None
+    user_id: Optional[str] = None
+    organization_id: Optional[str] = None
+    is_active: Optional[bool] = True
 
 class TokenData(BaseModel):
     username: Optional[str] = None
@@ -25,8 +28,9 @@ class UserCreate(BaseModel):
     username: str
     email: str
     password: str
-    role: str = "CONTROL_OPERATOR"  # ADMINISTRATOR, CONTROL_OPERATOR, ANALYST
+    role: str = "REPORTER"
     full_name: str
+    invitation_code: Optional[str] = None
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
@@ -44,6 +48,7 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: datetime.datetime
     last_login_at: Optional[datetime.datetime] = None
+    organization_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

@@ -47,6 +47,7 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [invitationCode, setInvitationCode] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -149,7 +150,7 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
     setAuthMode('login');
     setAuthError(null);
     setAuthSuccess(null);
-    
+    setInvitationCode('');
     setUsername('');
     setPassword('');
   };
@@ -166,7 +167,7 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
         const userRole = (authData.role || '').toUpperCase();
         const targetRoleId = selectedRoleForAuth?.id;
 
-        // Backend Role Validation
+        // Backend Role Validation against chosen entry card
         const isOperator = userRole === 'CONTROL_OPERATOR';
         const isAdmin = userRole === 'ADMINISTRATOR' || userRole === 'ADMIN';
         const isHospital = userRole === 'HOSPITAL_COORDINATOR';
@@ -185,28 +186,31 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
           hasAccess = true;
         } else if (targetRoleId === 'ANALYST' && isAnalyst) {
           hasAccess = true;
-        } else if (targetRoleId === 'REPORTER' && (isReporter || true)) {
+        } else if (targetRoleId === 'REPORTER' && isReporter) {
           hasAccess = true;
         }
 
         if (!hasAccess) {
           setAuthError(
-            `Access Denied: Your authenticated account holds the role '${authData.role}', which does not grant access to the ${selectedRoleForAuth?.portalName} portal. Please select your authorized role or contact an administrator.`
+            `Access Denied: Your authenticated account holds the role '${authData.role}', which does not grant access to the ${selectedRoleForAuth?.portalName} (${selectedRoleForAuth?.title}) portal. Please select your authorized role or log in with administrator credentials.`
           );
           setLoading(false);
           return;
         }
 
         const authenticatedUser: UserType = {
+          user_id: authData.user_id,
           username: authData.username,
           role: authData.role,
           full_name: authData.full_name,
-          access_token: authData.access_token
+          email: authData.email,
+          access_token: authData.access_token,
+          organization_id: authData.organization_id,
+          is_active: authData.is_active
         };
 
-        if (targetRoleId) {
-          onLoginSuccess(authenticatedUser, targetRoleId);
-        }
+        const finalRole = (isAdmin && targetRoleId ? targetRoleId : authData.role) as RoleType;
+        onLoginSuccess(authenticatedUser, finalRole);
       } else if (authMode === 'register') {
         if (!fullName.trim() || !email.trim() || !username.trim() || !password.trim()) {
           setAuthError('Please fill in all registration fields.');
@@ -214,22 +218,28 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
           return;
         }
 
+        const targetRole = selectedRoleForAuth?.id || 'REPORTER';
         const registered = await authApi.register({
           username: username.trim(),
           email: email.trim(),
           password,
           full_name: fullName.trim(),
-          role: selectedRoleForAuth?.id === 'REPORTER' ? 'REPORTER' : 'REPORTER'
+          role: targetRole,
+          invitation_code: invitationCode.trim() || undefined
         });
 
         const authenticatedUser: UserType = {
+          user_id: registered.user_id,
           username: registered.username,
           role: registered.role,
           full_name: registered.full_name,
-          access_token: registered.access_token
+          email: registered.email,
+          access_token: registered.access_token,
+          organization_id: registered.organization_id,
+          is_active: registered.is_active
         };
 
-        onLoginSuccess(authenticatedUser, 'REPORTER');
+        onLoginSuccess(authenticatedUser, registered.role as RoleType);
       } else if (authMode === 'forgot') {
         if (!email.trim()) {
           setAuthError('Please enter your registered email address.');
@@ -522,6 +532,15 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
             {/* Auth Form */}
             <form onSubmit={handleAuthSubmit} className="space-y-4">
               {authMode === 'register' && (
+                <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/30 flex items-center justify-between text-xs text-cyan-300">
+                  <span className="text-zinc-400">Assigned Role:</span>
+                  <span className="font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 font-mono">
+                    {selectedRoleForAuth.title} ({selectedRoleForAuth.id})
+                  </span>
+                </div>
+              )}
+
+              {authMode === 'register' && (
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1.5">Full Name</label>
                   <input
@@ -606,12 +625,34 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
                 </div>
               )}
 
+              {authMode === 'register' && (selectedRoleForAuth.id === 'ADMINISTRATOR' || selectedRoleForAuth.id === 'CONTROL_OPERATOR') && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5" />
+                      Administrative Authorization Code
+                    </label>
+                    <span className="text-[10px] text-amber-400 font-mono font-bold">Privileged Role</span>
+                  </div>
+                  <input
+                    type="password"
+                    value={invitationCode}
+                    onChange={(e) => setInvitationCode(e.target.value)}
+                    placeholder="Enter operations authorization code"
+                    className="w-full px-3.5 py-2.5 bg-[#080B13] border border-amber-500/40 focus:border-amber-400 rounded-xl text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none font-mono"
+                  />
+                  <p className="mt-1 text-[11px] text-zinc-400 leading-normal">
+                    Self-registration for {selectedRoleForAuth.title} requires an administrator authorization code or prior provisioning.
+                  </p>
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full py-3 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-zinc-950 font-bold text-sm rounded-xl transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
               >
-                {loading ? 'Authenticating...' : (authMode === 'login' ? `Access ${selectedRoleForAuth.portalName}` : (authMode === 'register' ? 'Submit Registration' : 'Send Reset Link'))}
+                {loading ? 'Processing...' : (authMode === 'login' ? `Access ${selectedRoleForAuth.portalName}` : (authMode === 'register' ? `Register as ${selectedRoleForAuth.title}` : 'Send Reset Link'))}
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>

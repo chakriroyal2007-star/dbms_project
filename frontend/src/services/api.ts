@@ -46,7 +46,7 @@ export const authApi = {
     const res = await api.delete(`/auth/users/${userId}`);
     return res.data;
   },
-  register: async (data: { username: string; email: string; password: string; full_name: string; role?: string }) => {
+  register: async (data: { username: string; email: string; password: string; full_name: string; role?: string; invitation_code?: string }) => {
     const res = await api.post('/auth/register', data);
     if (res.data?.access_token) {
       localStorage.setItem('tera_token', res.data.access_token);

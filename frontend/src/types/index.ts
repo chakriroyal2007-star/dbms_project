@@ -246,8 +246,13 @@ export interface AllocationPlan {
 }
 
 export interface User {
+  user_id?: string;
   username: string;
+  email?: string;
   role: string;
   full_name: string;
   access_token: string;
+  organization_id?: string;
+  is_active?: boolean;
 }
+

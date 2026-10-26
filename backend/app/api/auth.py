@@ -24,6 +24,18 @@ def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] 
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
+VALID_ROLES = {
+    "REPORTER",
+    "CONTROL_OPERATOR",
+    "HOSPITAL_COORDINATOR",
+    "FIELD_RESPONDER",
+    "ANALYST",
+    "ADMINISTRATOR",
+    "ADMIN"
+}
+PRIVILEGED_ROLES = {"ADMINISTRATOR", "ADMIN", "CONTROL_OPERATOR"}
+PUBLIC_ROLES = {"REPORTER", "FIELD_RESPONDER", "HOSPITAL_COORDINATOR", "ANALYST"}
+
 def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> Optional[UserAccount]:
     """Retrieves authenticated user strictly from JWT token."""
     if not token:
@@ -38,7 +50,12 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
         return None
         
     user = db.query(UserAccount).filter(UserAccount.username == username).first()
-    if user and user.is_active:
+    if user:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is deactivated. Contact an Administrator."
+            )
         return user
     return None
 
@@ -107,7 +124,10 @@ def login(login_data: UserLogin, db: Session = Depends(get_db)):
         "role": user.role,
         "username": user.username,
         "full_name": user.full_name,
-        "email": user.email
+        "email": user.email,
+        "user_id": user.user_id,
+        "organization_id": user.organization_id,
+        "is_active": user.is_active
     }
 
 @router.post("/token", response_model=Token)
@@ -131,18 +151,41 @@ def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         "role": user.role,
         "username": user.username,
         "full_name": user.full_name,
-        "email": user.email
+        "email": user.email,
+        "user_id": user.user_id,
+        "organization_id": user.organization_id,
+        "is_active": user.is_active
     }
 
 @router.post("/register", response_model=Token)
 def register_account(data: UserCreate, db: Session = Depends(get_db)):
     """
     Public registration endpoint.
-    - Citizens register as 'REPORTER' role by default.
-    - Operational roles require approval or can register with 'pending' status.
+    - Validates requested role against supported role list.
+    - Public self-registration allows: REPORTER, FIELD_RESPONDER, HOSPITAL_COORDINATOR, ANALYST.
+    - Privileged operational roles (ADMINISTRATOR, CONTROL_OPERATOR) require administrative authorization.
     """
+    raw_role = (data.role or "REPORTER").strip().upper()
+    if raw_role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role '{data.role}'. Supported roles: {', '.join(sorted(list(VALID_ROLES - {'ADMIN'})))}"
+        )
+
+    requested_role = "ADMINISTRATOR" if raw_role == "ADMIN" else raw_role
+
+    # Privileged roles require valid administrative authorization code
+    if requested_role in PRIVILEGED_ROLES:
+        provided_code = (data.invitation_code or "").strip()
+        expected_code = getattr(settings, "PRIVILEGED_INVITATION_CODE", "TERA-OPERATIONS-SECURE-2026")
+        if not provided_code or provided_code != expected_code:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Self-registration for privileged role '{requested_role}' is restricted. Administrator provisioning or a valid administrative authorization code is required."
+            )
+
     existing = db.query(UserAccount).filter(
-        (UserAccount.username == data.username) | (UserAccount.email == data.email)
+        (UserAccount.username == data.username.strip()) | (UserAccount.email == data.email.strip().lower())
     ).first()
     if existing:
         raise HTTPException(
@@ -150,17 +193,13 @@ def register_account(data: UserCreate, db: Session = Depends(get_db)):
             detail="Username or email is already registered."
         )
 
-    requested_role = data.role.upper() if data.role else "REPORTER"
-    # Public self-registration only grants REPORTER automatically; others require admin approval
-    assigned_role = requested_role if requested_role == "REPORTER" else "REPORTER"
-
     new_id = f"USR_{uuid.uuid4().hex[:8].upper()}"
     new_user = UserAccount(
         user_id=new_id,
         username=data.username.strip(),
         email=data.email.strip().lower(),
         hashed_password=get_password_hash(data.password),
-        role=assigned_role,
+        role=requested_role,
         full_name=data.full_name.strip(),
         is_active=True,
         created_at=datetime.datetime.utcnow()
@@ -178,7 +217,10 @@ def register_account(data: UserCreate, db: Session = Depends(get_db)):
         "role": new_user.role,
         "username": new_user.username,
         "full_name": new_user.full_name,
-        "email": new_user.email
+        "email": new_user.email,
+        "user_id": new_user.user_id,
+        "organization_id": new_user.organization_id,
+        "is_active": new_user.is_active
     }
 
 @router.get("/me", response_model=UserResponse)
@@ -205,6 +247,14 @@ def create_user(
     db: Session = Depends(get_db)
 ):
     """Admin-only: Registers a new user with assigned role."""
+    raw_role = (data.role or "CONTROL_OPERATOR").strip().upper()
+    if raw_role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role '{data.role}'. Supported roles: {', '.join(sorted(list(VALID_ROLES - {'ADMIN'})))}"
+        )
+    target_role = "ADMINISTRATOR" if raw_role == "ADMIN" else raw_role
+
     existing = db.query(UserAccount).filter(
         (UserAccount.username == data.username) | (UserAccount.email == data.email)
     ).first()
@@ -214,11 +264,11 @@ def create_user(
     new_id = f"USR_{uuid.uuid4().hex[:8].upper()}"
     new_user = UserAccount(
         user_id=new_id,
-        username=data.username,
-        email=data.email,
+        username=data.username.strip(),
+        email=data.email.strip().lower(),
         hashed_password=get_password_hash(data.password),
-        role=data.role,
-        full_name=data.full_name,
+        role=target_role,
+        full_name=data.full_name.strip(),
         is_active=True,
         created_at=datetime.datetime.utcnow()
     )
@@ -230,7 +280,7 @@ def create_user(
         entity_name="USER",
         entity_id=new_id,
         user=current_user,
-        details=f"Admin created user {data.username} with role {data.role}"
+        details=f"Admin created user {data.username} with role {target_role}"
     )
     db.commit()
     db.refresh(new_user)
@@ -251,11 +301,17 @@ def update_user(
     old_val = {"role": target_user.role, "is_active": target_user.is_active, "full_name": target_user.full_name}
     
     if data.email is not None:
-        target_user.email = data.email
+        target_user.email = data.email.strip().lower()
     if data.role is not None:
-        target_user.role = data.role
+        raw_role = data.role.strip().upper()
+        if raw_role not in VALID_ROLES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role '{data.role}'. Supported roles: {', '.join(sorted(list(VALID_ROLES - {'ADMIN'})))}"
+            )
+        target_user.role = "ADMINISTRATOR" if raw_role == "ADMIN" else raw_role
     if data.full_name is not None:
-        target_user.full_name = data.full_name
+        target_user.full_name = data.full_name.strip()
     if data.is_active is not None:
         target_user.is_active = data.is_active
     if data.password:

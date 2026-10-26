@@ -42,6 +42,9 @@ class Settings(BaseModel):
     SPEECH_PROVIDER: str = os.getenv("SPEECH_PROVIDER", "GOOGLE_SPEECH")  # "GOOGLE_SPEECH", "OPENAI_WHISPER", "LOCAL_ENGINE"
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 
+    # Privileged Role Authorization Code
+    PRIVILEGED_INVITATION_CODE: str = os.getenv("PRIVILEGED_INVITATION_CODE", "TERA-OPERATIONS-SECURE-2026")
+
 settings = Settings()
 
 # Ensure uploads directory exists safely
