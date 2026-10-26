@@ -209,8 +209,8 @@ class EmergencyReportRequest(BaseModel):
     incident_type: str
     description: str
     severity: str = "CRITICAL"
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     country: Optional[str] = "India"
     state: Optional[str] = "Andhra Pradesh"
     district: Optional[str] = "Tirupati"
@@ -247,8 +247,8 @@ class EmergencyReportReceipt(BaseModel):
     city: str = "Tirupati"
     locality: Optional[str] = None
     landmark: Optional[str] = None
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     severity: str
     estimated_patient_count: int
     reported_at: datetime.datetime

@@ -75,8 +75,8 @@ class Incident(Base):
     incident_type = Column(String(64), nullable=False)  # ROAD_ACCIDENT, COLLAPSE, UNCONSCIOUS, BREATHING_DISTRESS, TRAUMA_INJURY, CARDIAC, FIRE_HAZARD, OTHER
     description = Column(Text, nullable=False)
     severity = Column(String(16), nullable=False, index=True)  # LOW, MEDIUM, HIGH, CRITICAL
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
+    latitude = Column(Float, nullable=True, default=0.0)
+    longitude = Column(Float, nullable=True, default=0.0)
     location_accuracy_meters = Column(Float, nullable=True)
     is_location_verified = Column(Boolean, default=False, nullable=False)
     
