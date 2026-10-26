@@ -5,6 +5,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from app.config import settings
 from app.database.session import get_db
 from app.models.models import (
@@ -204,11 +205,17 @@ def track_incident_public(tracking_code: str, db: Session = Depends(get_db)):
     Public guest tracking endpoint. Does not require login.
     Returns real persisted status, event timeline, and medically reviewed first-aid guidance.
     """
-    inc = db.query(Incident).filter(Incident.tracking_code == tracking_code.strip()).first()
+    clean_code = tracking_code.strip()
+    inc = db.query(Incident).filter(
+        or_(
+            Incident.tracking_code == clean_code,
+            Incident.incident_id == clean_code
+        )
+    ).first()
     if not inc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tracking code not found. Please verify the 8-character reference code on your report receipt."
+            detail="Tracking reference not found. Please verify the incident ID or tracking code on your report receipt."
         )
         
     # Build timeline from persisted records or JSON cache
