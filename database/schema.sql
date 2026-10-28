@@ -1,5 +1,5 @@
 -- =============================================================================
--- TERA: Temporal Emergency Resource Allocation & Coordination System
+-- TERA: Temporal Emergency Resource Allocation & Coordination Platform
 -- Database Schema DDL (PostgreSQL Compatible)
 -- Target Normal Form: 3NF / BCNF
 -- =============================================================================

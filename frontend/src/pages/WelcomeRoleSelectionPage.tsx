@@ -403,7 +403,7 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
                 Grid OS v2.1
               </span>
             </div>
-            <p className="text-xs text-zinc-400 font-medium">Emergency Assistance & Response Coordination</p>
+            <p className="text-xs text-zinc-400 font-medium">Temporal Emergency Resource Allocation & Coordination Platform</p>
           </div>
         </div>
 

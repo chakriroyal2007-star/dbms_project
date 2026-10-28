@@ -44,7 +44,7 @@ except Exception:
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Temporal Emergency Resource Allocation & Coordination DBMS Engine",
+    description="Temporal Emergency Resource Allocation & Coordination Platform",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -90,7 +90,7 @@ app.include_router(incidents.router, prefix="/api/v1")
 def root():
     return {
         "product": "TERA",
-        "full_name": "Temporal Emergency Resource Allocation & Coordination System",
+        "full_name": "Temporal Emergency Resource Allocation & Coordination Platform",
         "tagline": "Coordinate Every Resource. Respond When It Matters Most.",
         "status": "ONLINE",
         "database_dialect": engine.dialect.name,

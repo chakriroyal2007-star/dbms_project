@@ -27,7 +27,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
           <div>
             <span className="font-bold text-base text-zinc-100 tracking-tight">TERA</span>
-            <span className="text-xs text-zinc-400 font-sans ml-2">Emergency Operations & Resource Coordination</span>
+            <span className="text-xs text-zinc-400 font-sans ml-2">Temporal Emergency Resource Allocation & Coordination Platform</span>
           </div>
         </div>
 

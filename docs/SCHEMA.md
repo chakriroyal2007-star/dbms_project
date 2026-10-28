@@ -1,6 +1,6 @@
 # TERA Relational Database Schema Specification
 
-This document details the relational tables, column definitions, data types, constraints, and normalization decisions for the **TERA (Temporal Emergency Resource Allocation & Coordination System)** database.
+This document details the relational tables, column definitions, data types, constraints, and normalization decisions for the **TERA (Temporal Emergency Resource Allocation & Coordination Platform)** database.
 
 ---
 

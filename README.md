@@ -1,6 +1,6 @@
-# TERA: Emergency Assistance & Response Coordination Platform
+# TERA: Temporal Emergency Resource Allocation & Coordination Platform
 
-> **"Every Second Matters."**  
+> **"Every Second Matters. Every Life Matters."**  
 > An enterprise-grade, real-world emergency assistance, resource coordination, and decision-support platform connecting bystanders, control operators, hospitals, and field responders.
 
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%2015%2B%20%7C%20SQLite%20Fallback-blue?logo=postgresql)](https://github.com)

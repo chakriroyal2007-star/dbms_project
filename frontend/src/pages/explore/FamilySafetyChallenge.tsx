@@ -474,7 +474,7 @@ export const FamilySafetyChallenge: React.FC<FamilySafetyChallengeProps> = ({ on
             </div>
 
             <div className="text-[10px] text-slate-500 font-mono pt-2">
-              Tirupati Emergency Resource Allocation & Coordination Platform (TERA) • MoRTH Road Safety Mission
+              Temporal Emergency Resource Allocation & Coordination Platform (TERA) • MoRTH Road Safety Mission
             </div>
           </div>
 

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseModel):
-    PROJECT_NAME: str = "TERA - Emergency Assistance & Response Coordination Platform"
+    PROJECT_NAME: str = "TERA - Temporal Emergency Resource Allocation & Coordination Platform"
     VERSION: str = "2.1.0"
     API_V1_STR: str = "/api"
     

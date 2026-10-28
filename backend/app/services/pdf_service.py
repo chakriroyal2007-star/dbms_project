@@ -126,7 +126,7 @@ def generate_incident_pdf(incident_data: Dict[str, Any], output_path: str) -> Di
     # 1. Header Banner
     header_table_data = [
         [
-            Paragraph("<b>TERA EMERGENCY OPERATIONS CENTER</b><br/><font size='8' color='#64748B'>Tirupati Emergency Resource Allocation & Multi-Agency Incident Management</font>", title_style),
+            Paragraph("<b>TERA EMERGENCY OPERATIONS CENTER</b><br/><font size='8' color='#64748B'>Temporal Emergency Resource Allocation & Coordination Platform</font>", title_style),
             Paragraph(f"<b>CONFIDENTIAL</b><br/><font size='8'>INCIDENT REPORT</font><br/><font size='8' color='#DC2626'>OFFICIAL RECORD</font>", ParagraphStyle('HRight', parent=styles['Normal'], alignment=2, textColor=colors.HexColor('#0F172A')))
         ]
     ]

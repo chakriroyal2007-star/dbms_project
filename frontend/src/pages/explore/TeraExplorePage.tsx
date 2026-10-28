@@ -826,7 +826,7 @@ export const TeraExplorePage: React.FC<TeraExplorePageProps> = ({
           “Every Second Matters. Every Life Matters. Make Every Journey Safer.”
         </p>
         <p className="font-mono text-[11px]">
-          TERA Explore 2.0 • Tirupati Emergency Resource Allocation & Coordination Platform
+          TERA Explore 2.0 • Temporal Emergency Resource Allocation & Coordination Platform
         </p>
         <div className="flex justify-center gap-4 text-[10px] text-slate-600 pt-1">
           <span>MoRTH Motor Vehicles Act 2019</span>
