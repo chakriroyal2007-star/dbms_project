@@ -14,7 +14,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.api.auth import get_current_user
-from app.models.models import UserAccount
+from app.models.models import UserAccount, UserLearningProgress, ActivityCompletion, UserBadge
+from app.api.case_studies_data import MAJOR_ACCIDENT_CASE_STUDIES
+from app.api.campaign_data import CAMPAIGN_HERO_DATA, CAMPAIGN_STORIES, OFFICIAL_CAMPAIGN_VIDEOS
+from app.services.learning_service import LearningProgressionService, MASTER_BADGE_CATALOG, ACTIVITY_XP_RULES
 
 router = APIRouter(prefix="/explore", tags=["TERA Explore 2.0 — Road Safety & Prevention"])
 
@@ -26,10 +29,18 @@ _GUEST_PROGRESS_CACHE: Dict[str, Dict[str, Any]] = {}
 # ------------------------------------------------------------------------------
 # Pydantic Schemas
 # ------------------------------------------------------------------------------
+class ActivityCompletionRequest(BaseModel):
+    session_id: Optional[str] = "guest"
+    activity_type: str  # "LESSON" | "QUIZ" | "HAZARD_GAME" | "SCENARIO" | "CASE_STUDY" | "FAMILY_CHALLENGE" | "DAILY_CHALLENGE" | "MEMORY_GAME" | "JOURNEY_GAME" | "PLEDGE"
+    activity_id: str
+    score: float = 100.0
+    passed: bool = True
+    metadata: Optional[Dict[str, Any]] = None
+
 class ProgressUpdateRequest(BaseModel):
     session_id: Optional[str] = "guest"
     xp_earned: int = 0
-    activity_type: str  # "SCENARIO" | "HAZARD" | "QUIZ" | "MEMORY" | "JOURNEY" | "PLEDGE"
+    activity_type: str  # "SCENARIO" | "HAZARD" | "QUIZ" | "MEMORY" | "JOURNEY" | "PLEDGE" | "LESSON" | "CASE_STUDY"
     activity_id: str
     passed: bool = True
     achievement_id: Optional[str] = None
@@ -707,6 +718,18 @@ def get_quiz_bank(
         "questions": filtered
     }
 
+@router.get("/campaign")
+def get_campaign_details():
+    """
+    Returns full 'Someone Is Waiting for You' campaign assets:
+    hero banner, 6 emotional stories, slogans, and curated official road safety video gallery.
+    """
+    return {
+        "hero": CAMPAIGN_HERO_DATA,
+        "stories": CAMPAIGN_STORIES,
+        "videos": OFFICIAL_CAMPAIGN_VIDEOS
+    }
+
 @router.get("/stories")
 def get_family_stories():
     """
@@ -716,143 +739,198 @@ def get_family_stories():
     return {
         "campaign_title": "Someone Is Waiting for You",
         "tagline": "Learn smarter. Choose safer. Protect the people who matter most.",
-        "stories": EMOTIONAL_STORIES
+        "stories": CAMPAIGN_STORIES
+    }
+
+@router.get("/case-studies")
+def get_major_accident_case_studies(
+    category: Optional[str] = Query(None, description="Accident type filter"),
+    road_user: Optional[str] = Query(None, description="Road user category filter"),
+    search: Optional[str] = Query(None, description="Search keyword in title, location, or summary")
+):
+    """
+    Returns verified major accident case studies adhering to the strict 7-section structure.
+    """
+    cases = MAJOR_ACCIDENT_CASE_STUDIES
+    if category and category.upper() != "ALL":
+        cases = [c for c in cases if c["accident_type"] == category.upper()]
+    if road_user and road_user.upper() != "ALL":
+        cases = [c for c in cases if road_user.lower() in c["road_user_category"].lower()]
+    if search:
+        q = search.lower()
+        cases = [
+            c for c in cases 
+            if q in c["title"].lower() or q in c["summary"].lower() or q in c["location"].lower()
+        ]
+    
+    categories = sorted(list(set(c["accident_type"] for c in MAJOR_ACCIDENT_CASE_STUDIES)))
+    return {
+        "total": len(cases),
+        "categories": categories,
+        "case_studies": cases
+    }
+
+@router.get("/case-studies/{case_id}")
+def get_case_study_detail(case_id: str):
+    """
+    Returns full detail of a specific verified accident case study including quiz and sources.
+    """
+    c = next((item for item in MAJOR_ACCIDENT_CASE_STUDIES if item["id"] == case_id), None)
+    if not c:
+        raise HTTPException(status_code=404, detail=f"Case study '{case_id}' not found.")
+    return c
+
+@router.get("/badges")
+def get_user_badges(
+    session_id: str = Query("guest_session"),
+    current_user: Optional[UserAccount] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the master catalog of 15 badges annotated with user's earned/locked status,
+    exact unlock criteria, and actual progress.
+    """
+    user_key = current_user.user_id if current_user else session_id
+    badges = LearningProgressionService.get_badge_catalog_with_status(db, user_key)
+    earned_count = len([b for b in badges if b["unlocked"]])
+    return {
+        "total_badges": len(badges),
+        "earned_count": earned_count,
+        "locked_count": len(badges) - earned_count,
+        "badges": badges
     }
 
 @router.get("/achievements")
 def get_achievement_definitions():
     """
     Returns catalog of available safety achievements and XP milestones.
+    Includes both canonical IDs and legacy ACH_ aliases for full compatibility.
     """
-    return ACHIEVEMENT_DEFINITIONS
+    items = []
+    for b in MASTER_BADGE_CATALOG:
+        items.append(b)
+        legacy_id = f"ACH_{b['id'].upper()}"
+        if legacy_id not in [x["id"] for x in items]:
+            legacy_item = dict(b)
+            legacy_item["id"] = legacy_id
+            items.append(legacy_item)
+    return items
 
 @router.get("/progress")
 def get_user_learning_progress(
     session_id: str = Query("guest_session"),
-    current_user: Optional[UserAccount] = Depends(get_current_user)
+    current_user: Optional[UserAccount] = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """
-    Retrieves the learner's Safety Journey progression, earned badges, and Safety XP.
+    Retrieves the learner's authoritative Safety Journey progression,
+    earned badges, and persistent Safety XP from database.
     """
     user_key = current_user.user_id if current_user else session_id
-    progress = _GUEST_PROGRESS_CACHE.get(user_key, {
-        "user_key": user_key,
+    prog = LearningProgressionService.get_or_create_user_progress(db, user_key, current_user)
+    badges = db.query(UserBadge).filter(UserBadge.user_key == user_key).all()
+    
+    earned_badge_ids = [b.badge_id for b in badges]
+    return {
+        "user_key": prog.user_key,
+        "user_id": prog.user_id or "guest_citizen",
         "is_authenticated": current_user is not None,
-        "username": current_user.username if current_user else "Safety Explorer (Guest)",
-        "total_xp": 100,  # Starting welcome XP
-        "level": "Defensive Scout",
-        "completed_scenarios": ["SCN_01_PHONE_CALL"],
-        "completed_quizzes": 1,
-        "discovered_hazards_count": 3,
-        "streak_days": 1,
-        "pledge_signed": False,
-        "pledge_name": None,
-        "earned_achievements": ["ACH_FIRST_SAFE_CHOICE"],
-        "last_activity_at": datetime.datetime.utcnow().isoformat()
-    })
-    return progress
+        "username": prog.username,
+        "total_xp": prog.total_xp,
+        "level": prog.level,
+        "level_title": prog.level_title,
+        "quizzes_completed": prog.quizzes_completed,
+        "quiz_accuracy_pct": prog.quiz_accuracy_pct,
+        "games_completed": prog.games_completed,
+        "lessons_read": prog.lessons_read,
+        "case_studies_completed": prog.case_studies_completed,
+        "streak_days": prog.streak_days,
+        "pledge_signed": prog.pledge_signed,
+        "pledge_name": prog.pledge_name,
+        "earned_achievements": earned_badge_ids,
+        "earned_badges": earned_badge_ids,
+        "last_activity_at": prog.last_activity_at.isoformat()
+    }
+
+@router.post("/activity/complete")
+def complete_learning_activity(
+    req: ActivityCompletionRequest,
+    current_user: Optional[UserAccount] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Authoritatively validates activity completion, computes server-side XP from rules,
+    records immutable completion to database, prevents duplicate rewards via idempotency,
+    and returns authoritative updated progress and newly unlocked badges.
+    """
+    user_key = current_user.user_id if current_user else (req.session_id or "guest_session")
+    result = LearningProgressionService.record_activity_completion(
+        db=db,
+        user_key=user_key,
+        activity_type=req.activity_type,
+        activity_id=req.activity_id,
+        score=req.score,
+        passed=req.passed,
+        metadata=req.metadata,
+        current_user=current_user
+    )
+    return result
 
 @router.post("/progress")
 def record_learning_progress(
     req: ProgressUpdateRequest,
-    current_user: Optional[UserAccount] = Depends(get_current_user)
+    current_user: Optional[UserAccount] = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """
-    Updates the learner's progression, awards XP, and unlocks verified achievements.
-    Prevents artificial duplication and validates incoming activities.
+    Backwards-compatible completion endpoint that routes into authoritative LearningProgressionService.
     """
     user_key = current_user.user_id if current_user else (req.session_id or "guest_session")
-    progress = _GUEST_PROGRESS_CACHE.setdefault(user_key, {
-        "user_key": user_key,
-        "is_authenticated": current_user is not None,
-        "username": current_user.username if current_user else "Safety Explorer (Guest)",
-        "total_xp": 100,
-        "level": "Defensive Scout",
-        "completed_scenarios": [],
-        "completed_quizzes": 0,
-        "discovered_hazards_count": 0,
-        "streak_days": 1,
-        "pledge_signed": False,
-        "pledge_name": None,
-        "earned_achievements": ["ACH_FIRST_SAFE_CHOICE"],
-        "last_activity_at": datetime.datetime.utcnow().isoformat()
-    })
-
-    # Add earned XP
-    if req.xp_earned > 0 and req.passed:
-        progress["total_xp"] += req.xp_earned
-
-    # Track activity specifics
-    if req.activity_type == "SCENARIO" and req.activity_id not in progress["completed_scenarios"]:
-        progress["completed_scenarios"].append(req.activity_id)
-    elif req.activity_type == "QUIZ" and req.passed:
-        progress["completed_quizzes"] += 1
-    elif req.activity_type == "HAZARD":
-        progress["discovered_hazards_count"] += 1
-    elif req.activity_type == "PLEDGE":
-        progress["pledge_signed"] = True
-        progress["pledge_name"] = req.pledge_name or "Responsible Citizen"
-        if "ACH_FAMILY_ADVOCATE" not in progress["earned_achievements"]:
-            progress["earned_achievements"].append("ACH_FAMILY_ADVOCATE")
-            progress["total_xp"] += 120
-
-    # Dynamic Level Progression
-    xp = progress["total_xp"]
-    if xp >= 500:
-        progress["level"] = "Road Safety Guardian"
-        if "ACH_ROAD_SAFETY_MASTER" not in progress["earned_achievements"]:
-            progress["earned_achievements"].append("ACH_ROAD_SAFETY_MASTER")
-    elif xp >= 300:
-        progress["level"] = "Defensive Champion"
-    elif xp >= 150:
-        progress["level"] = "Cautious Commuter"
-    else:
-        progress["level"] = "Defensive Scout"
-
-    # Unlock requested achievement if applicable
-    if req.achievement_id and req.achievement_id not in progress["earned_achievements"]:
-        progress["earned_achievements"].append(req.achievement_id)
-
-    progress["last_activity_at"] = datetime.datetime.utcnow().isoformat()
-    return {
-        "status": "success",
-        "current_total_xp": progress["total_xp"],
-        "current_level": progress["level"],
-        "earned_achievements": progress["earned_achievements"],
-        "message": f"Successfully updated progress. Current XP: {progress['total_xp']}"
-    }
+    metadata = {}
+    if req.pledge_name:
+        metadata["pledge_name"] = req.pledge_name
+    
+    result = LearningProgressionService.record_activity_completion(
+        db=db,
+        user_key=user_key,
+        activity_type=req.activity_type,
+        activity_id=req.activity_id,
+        score=100.0,
+        passed=req.passed,
+        metadata=metadata,
+        current_user=current_user,
+        custom_xp=req.xp_earned if req.xp_earned > 0 else None
+    )
+    return result
 
 @router.post("/pledge")
 def sign_family_safety_pledge(
     req: SafetyPledgeRequest,
-    current_user: Optional[UserAccount] = Depends(get_current_user)
+    current_user: Optional[UserAccount] = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """
-    Submits a certified family road-safety pledge and unlocks the Family Safety Advocate badge.
+    Submits a certified family road-safety pledge, persists to database,
+    and unlocks the Family Safety Advocate badge and milestone XP.
     """
     user_key = current_user.user_id if current_user else "guest_session"
-    progress = _GUEST_PROGRESS_CACHE.setdefault(user_key, {
-        "user_key": user_key,
-        "is_authenticated": current_user is not None,
-        "username": current_user.username if current_user else req.pledge_name,
-        "total_xp": 100,
-        "level": "Defensive Scout",
-        "completed_scenarios": [],
-        "completed_quizzes": 0,
-        "discovered_hazards_count": 0,
-        "streak_days": 1,
-        "pledge_signed": False,
-        "pledge_name": None,
-        "earned_achievements": [],
-        "last_activity_at": datetime.datetime.utcnow().isoformat()
-    })
+    metadata = {
+        "pledge_name": req.pledge_name,
+        "family_members_count": req.family_members_count,
+        "commitments": req.commitments
+    }
     
-    progress["pledge_signed"] = True
-    progress["pledge_name"] = req.pledge_name
-    progress["total_xp"] += 120
-    if "ACH_FAMILY_ADVOCATE" not in progress["earned_achievements"]:
-        progress["earned_achievements"].append("ACH_FAMILY_ADVOCATE")
-        
+    completion_res = LearningProgressionService.record_activity_completion(
+        db=db,
+        user_key=user_key,
+        activity_type="PLEDGE",
+        activity_id=f"PLG_{datetime.datetime.utcnow().strftime('%Y%m%d')}",
+        score=100.0,
+        passed=True,
+        metadata=metadata,
+        current_user=current_user
+    )
+    
     return {
         "status": "success",
         "pledge_id": f"PLG_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
@@ -860,6 +938,8 @@ def sign_family_safety_pledge(
         "family_members_count": req.family_members_count,
         "commitments": req.commitments,
         "signed_at": datetime.datetime.utcnow().isoformat(),
-        "unlocked_achievement": "ACH_FAMILY_ADVOCATE",
+        "unlocked_achievement": "family_advocate",
+        "xp_awarded": completion_res["xp_awarded"],
+        "current_total_xp": completion_res["current_total_xp"],
         "message": f"Thank you, {req.pledge_name}! Your Family Road-Safety Pledge is registered."
     }

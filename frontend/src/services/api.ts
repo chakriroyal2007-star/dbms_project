@@ -497,7 +497,130 @@ export interface UserProgress {
   quiz_accuracy_pct: number;
   games_completed: number;
   lessons_read: number;
+  lessons_completed?: number;
   streak_days: number;
+  earned_badges: string[];
+  case_studies_completed?: number;
+  family_pledge_signed?: boolean;
+}
+
+export interface AccidentCaseStudy {
+  id: string;
+  title: string;
+  accident_type: string;
+  accident_type_label: string;
+  road_user_category: string;
+  contributing_factors: string[];
+  location: string;
+  date: string;
+  sensitivity_label: string;
+  summary: string;
+  image_url?: string;
+  image_caption?: string;
+  what_happened: string;
+  what_do_we_know: {
+    confirmed_facts: string[];
+    preliminary_or_unconfirmed: string[];
+    unknown_details: string[];
+  };
+  how_crash_occurred: {
+    immediate_sequence: string;
+    contributing_factors: string[];
+    road_and_environment: string;
+    vehicle_and_occupant_factors: string;
+  };
+  prevention_measures: string[];
+  road_user_takeaways: {
+    two_wheeler_riders: string;
+    car_drivers_and_passengers: string;
+    heavy_vehicle_drivers: string;
+    road_authorities: string;
+    pedestrians_and_cyclists?: string;
+  };
+  quiz: Array<{
+    question: string;
+    options: string[];
+    correct_index: number;
+    explanation: string;
+  }>;
+  sources: Array<{
+    title: string;
+    publisher: string;
+    publication_date: string;
+    url: string;
+  }>;
+}
+
+export interface OfficialCampaignVideo {
+  id: string;
+  title: string;
+  publisher: string;
+  duration: string;
+  topic: string;
+  embed_url: string;
+  external_url: string;
+  thumbnail: string;
+  description: string;
+  key_takeaway: string;
+}
+
+export interface CampaignData {
+  hero: {
+    headline: string;
+    subheadline: string;
+    slogans: string[];
+    hero_image: string;
+    hero_image_caption: string;
+    call_to_actions: Array<{
+      id: string;
+      title: string;
+      description: string;
+      target_tab: string;
+      icon: string;
+    }>;
+  };
+  stories: Array<FamilyStory & {
+    story_theme?: string;
+    practical_action?: string;
+    related_activity_tab?: string;
+    related_activity_title?: string;
+    image_url?: string;
+  }>;
+  videos: OfficialCampaignVideo[];
+}
+
+export interface Badge {
+  id: string;
+  title: string;
+  category: string;
+  icon: string;
+  description: string;
+  criteria: string;
+  xp_reward: number;
+  unlocked: boolean;
+  earned_at: string | null;
+  reason: string | null;
+  current_progress: number;
+  max_progress: number;
+  progress_percentage: number;
+}
+
+export interface ActivityCompletionResponse {
+  status: string;
+  message: string;
+  xp_awarded: number;
+  current_total_xp: number;
+  current_level: number;
+  current_level_title: string;
+  newly_unlocked_badges: Array<{
+    id: string;
+    title: string;
+    category: string;
+    description: string;
+    icon: string;
+    xp_reward: number;
+    earned_at: string;
+  }>;
   earned_badges: string[];
 }
 
@@ -539,6 +662,31 @@ export const exploreApi = {
       }
     };
   },
+  getCampaign: async (): Promise<CampaignData> => {
+    const res = await api.get('/explore/campaign');
+    return res.data;
+  },
+  getCaseStudies: async (params?: { category?: string; road_user?: string; search?: string }): Promise<{
+    total: number;
+    categories: string[];
+    case_studies: AccidentCaseStudy[];
+  }> => {
+    const res = await api.get('/explore/case-studies', { params });
+    return res.data;
+  },
+  getCaseStudy: async (caseId: string): Promise<AccidentCaseStudy> => {
+    const res = await api.get(`/explore/case-studies/${caseId}`);
+    return res.data;
+  },
+  getBadges: async (sessionId?: string): Promise<{
+    total_badges: number;
+    earned_count: number;
+    locked_count: number;
+    badges: Badge[];
+  }> => {
+    const res = await api.get('/explore/badges', { params: { session_id: sessionId } });
+    return res.data;
+  },
   getScenarios: async () => {
     const res = await api.get('/explore/scenarios');
     return res.data?.scenarios || res.data;
@@ -562,6 +710,17 @@ export const exploreApi = {
   getProgress: async (sessionId?: string): Promise<UserProgress> => {
     const res = await api.get('/explore/progress', { params: { session_id: sessionId } });
     return res.data?.progress || res.data;
+  },
+  completeActivity: async (data: {
+    session_id?: string;
+    activity_type: string;
+    activity_id: string;
+    score?: number;
+    passed?: boolean;
+    metadata?: any;
+  }): Promise<ActivityCompletionResponse> => {
+    const res = await api.post('/explore/activity/complete', data);
+    return res.data;
   },
   updateProgress: async (data: {
     session_id?: string;

@@ -407,3 +407,58 @@ class TranscriptionJob(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
 
+
+# ------------------------------------------------------------------------------
+# TERA Explore 2.0 & Road Safety Learning Models
+# ------------------------------------------------------------------------------
+class UserLearningProgress(Base):
+    __tablename__ = "user_learning_progress"
+    
+    id = Column(String(64), primary_key=True)
+    user_key = Column(String(100), unique=True, nullable=False, index=True)
+    user_id = Column(String(64), ForeignKey("user_account.user_id", ondelete="SET NULL"), nullable=True, index=True)
+    session_id = Column(String(100), nullable=True, index=True)
+    username = Column(String(150), default="Safety Explorer (Citizen)", nullable=False)
+    total_xp = Column(Integer, default=0, nullable=False)
+    level = Column(Integer, default=1, nullable=False)
+    level_title = Column(String(64), default="Defensive Scout", nullable=False)
+    quizzes_completed = Column(Integer, default=0, nullable=False)
+    quiz_accuracy_pct = Column(Float, default=0.0, nullable=False)
+    games_completed = Column(Integer, default=0, nullable=False)
+    lessons_read = Column(Integer, default=0, nullable=False)
+    case_studies_completed = Column(Integer, default=0, nullable=False)
+    streak_days = Column(Integer, default=1, nullable=False)
+    pledge_signed = Column(Boolean, default=False, nullable=False)
+    pledge_name = Column(String(150), nullable=True)
+    last_activity_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+
+
+class ActivityCompletion(Base):
+    __tablename__ = "activity_completion"
+    
+    completion_id = Column(String(64), primary_key=True)
+    user_key = Column(String(100), nullable=False, index=True)
+    activity_type = Column(String(32), nullable=False, index=True)  # "LESSON", "QUIZ", "HAZARD_GAME", "SCENARIO", "CASE_STUDY", "FAMILY_CHALLENGE", "DAILY_CHALLENGE", "MEMORY_GAME", "JOURNEY_GAME", "PLEDGE"
+    activity_id = Column(String(100), nullable=False, index=True)
+    score = Column(Float, default=100.0, nullable=False)
+    passed = Column(Boolean, default=True, nullable=False)
+    xp_awarded = Column(Integer, default=0, nullable=False)
+    idempotency_key = Column(String(128), unique=True, index=True, nullable=False)
+    metadata_json = Column(JSON, nullable=True)
+    completed_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+
+
+class UserBadge(Base):
+    __tablename__ = "user_badge"
+    
+    badge_award_id = Column(String(64), primary_key=True)
+    user_key = Column(String(100), nullable=False, index=True)
+    badge_id = Column(String(64), nullable=False, index=True)
+    badge_title = Column(String(150), nullable=False)
+    badge_category = Column(String(64), nullable=False)
+    xp_reward = Column(Integer, default=50, nullable=False)
+    reason = Column(String(255), nullable=True)
+    earned_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+    idempotency_key = Column(String(128), unique=True, index=True, nullable=False)
+
