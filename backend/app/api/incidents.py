@@ -2,7 +2,7 @@ import os
 import datetime
 import uuid
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, status as http_status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -90,6 +90,18 @@ def try_generate_pdf_for_incident(inc: Incident, db: Session) -> None:
         inc.pdf_status = "FAILED_RETRYABLE"
         db.commit()
 
+def background_generate_pdf(incident_id: str) -> None:
+    """Non-blocking background worker task for generating consolidated incident PDF."""
+    from app.database.session import SessionLocal
+    try:
+        with SessionLocal() as bg_db:
+            inc = bg_db.query(Incident).filter(Incident.incident_id == incident_id).first()
+            if inc:
+                try_generate_pdf_for_incident(inc, bg_db)
+    except Exception as bg_err:
+        import logging
+        logging.getLogger("tera.pdf").warning(f"[PDF_BACKGROUND_ERROR] incident_id={incident_id}: {bg_err}")
+
 
 VALID_TRANSITIONS = {
     "DRAFT": ["SUBMITTED", "CANCELLED"],
@@ -170,34 +182,70 @@ def list_incidents(
     """
     Lists incidents from database.
     - If user has role 'REPORTER' or 'my_reports=True', enforces: WHERE reporter_id = current_user.user_id
-    - If guest passes 'my_reports=True' with tracking_codes, filters by those tracking codes.
+    - If guest passes 'my_reports=True' with tracking_codes, filters strictly by those tracking codes.
     - If guest passes 'my_reports=True' without tracking codes, returns an empty list [].
-    - Operators, Administrators, and Analysts can view all incidents or filter.
+    - Operational roles (CONTROL_OPERATOR, ADMINISTRATOR, ADMIN, ANALYST) can view all incidents or filter.
+    - Field Responders and Hospital Coordinators can view incidents in their operational mesh.
+    - Unauthenticated callers without guest tracking codes are denied with HTTP 401.
     """
-    query = db.query(Incident)
-    
-    if current_user and current_user.role.upper() == "REPORTER":
-        query = query.filter(Incident.reporter_id == current_user.user_id)
-    elif my_reports:
+    import logging
+    logger = logging.getLogger("tera.incidents")
+
+    if my_reports:
         if current_user:
-            query = query.filter(Incident.reporter_id == current_user.user_id)
+            query = db.query(Incident).filter(Incident.reporter_id == current_user.user_id)
         elif tracking_codes:
             codes = [c.strip() for c in tracking_codes.split(",") if c.strip()]
             if codes:
-                query = query.filter(Incident.tracking_code.in_(codes))
+                query = db.query(Incident).filter(Incident.tracking_code.in_(codes))
             else:
                 return []
         else:
             return []
-    elif reporter_id:
+    elif current_user:
+        user_role = (current_user.role or "").upper()
+        if user_role == "REPORTER":
+            query = db.query(Incident).filter(Incident.reporter_id == current_user.user_id)
+        elif user_role in ["CONTROL_OPERATOR", "ADMINISTRATOR", "ADMIN", "ANALYST", "FIELD_RESPONDER", "HOSPITAL_COORDINATOR"]:
+            query = db.query(Incident)
+        else:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied for role '{current_user.role}'."
+            )
+    else:
+        # Strictly require authentication for unrestricted queue access
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication credentials required to access the operational incident queue."
+        )
+
+    if reporter_id:
         query = query.filter(Incident.reporter_id == reporter_id)
 
     if status:
-        query = query.filter(Incident.status == status.upper())
+        status_items = [s.strip().upper() for s in status.split(",") if s.strip()]
+        if len(status_items) == 1:
+            query = query.filter(Incident.status == status_items[0])
+        elif len(status_items) > 1:
+            query = query.filter(Incident.status.in_(status_items))
+
     if severity:
-        query = query.filter(Incident.severity == severity.upper())
-        
-    return query.order_by(Incident.occurred_at.desc()).limit(limit).all()
+        sev_items = [s.strip().upper() for s in severity.split(",") if s.strip()]
+        if len(sev_items) == 1:
+            query = query.filter(Incident.severity == sev_items[0])
+        elif len(sev_items) > 1:
+            query = query.filter(Incident.severity.in_(sev_items))
+
+    # Order by created_at / reported_at desc so newly submitted incidents ALWAYS appear first in queue
+    results = query.order_by(
+        Incident.created_at.desc(),
+        Incident.reported_at.desc(),
+        Incident.occurred_at.desc()
+    ).limit(limit).all()
+
+    logger.debug(f"[QUEUE_FETCH] user={current_user.username if current_user else 'GUEST'} status_filter={status} returned={len(results)}")
+    return results
 
 @router.get("/track/{tracking_code}", response_model=PublicTrackIncidentResponse)
 def track_incident_public(tracking_code: str, db: Session = Depends(get_db)):
@@ -262,6 +310,7 @@ def track_incident_public(tracking_code: str, db: Session = Depends(get_db)):
 @router.post("/report", response_model=EmergencyReportReceipt)
 def report_emergency_incident(
     data: EmergencyReportRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Optional[UserAccount] = Depends(get_current_user)
 ):
@@ -413,8 +462,14 @@ def report_emergency_incident(
     db.commit()
     db.refresh(new_inc)
 
-    # 3. Non-blocking PDF Generation
-    try_generate_pdf_for_incident(new_inc, db)
+    # 3. Non-blocking Asynchronous PDF Generation
+    background_tasks.add_task(background_generate_pdf, new_inc.incident_id)
+
+    import logging
+    logging.getLogger("tera.incidents").info(
+        f"[INCIDENT_DURABLY_COMMITTED] incident_id={new_inc.incident_id} tracking_code={tracking_code} "
+        f"status={new_inc.status} readiness={readiness_assessment['total_score']}"
+    )
 
     return {
         "incident_id": new_inc.incident_id,

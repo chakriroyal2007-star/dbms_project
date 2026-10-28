@@ -190,7 +190,7 @@ def update_hospital_capacity(
     """
     Updates hospital capacity in database with immutable historical record.
     """
-    hosp_id = current_user.organization_id or "HOSP_01"
+    hosp_id = current_user.organization_id or "HOSP_001"
     hosp = db.query(Hospital).filter(Hospital.hospital_id == hosp_id).first()
     if not hosp:
         hosp = db.query(Hospital).first()

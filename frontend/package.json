@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "npx tsx src/tests/routing.test.ts"
+    "test": "npx tsx src/tests/routing.test.ts && npx tsx src/tests/operator_queue_sync.test.ts && npx tsx src/tests/explore_platform.test.ts"
   },
   "dependencies": {
     "axios": "^1.7.9",

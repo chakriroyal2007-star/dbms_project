@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Radio, RefreshCw, User as UserIcon, LogOut, 
-  CheckCircle2, Shield, Search, Bell, Sparkles, Terminal, Activity
+  CheckCircle2, Shield, Search, Bell, Sparkles, Terminal, Activity, Compass
 } from 'lucide-react';
 import api, { authApi } from '../services/api';
 import { User } from '../types';
@@ -75,11 +75,11 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Center: Command Palette Trigger Button */}
-        <div className="hidden sm:flex items-center">
+        {/* Center: Command Palette Trigger Button & Explore More */}
+        <div className="hidden sm:flex items-center gap-3">
           <button
             onClick={() => setShowCommandPalette(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800/80 border border-zinc-800 text-xs text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer shadow-inner w-56 justify-between"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800/80 border border-zinc-800 text-xs text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer shadow-inner w-52 justify-between"
           >
             <div className="flex items-center gap-2">
               <Search className="w-3.5 h-3.5 text-zinc-500" />
@@ -88,6 +88,16 @@ export const Header: React.FC<HeaderProps> = ({
             <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-400 border border-zinc-700">
               ⌘K
             </kbd>
+          </button>
+
+          {/* Explore More - Road Safety & Educational Games */}
+          <button
+            onClick={() => onNavigateTab && onNavigateTab('explore')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-950 via-teal-950 to-slate-900 hover:from-cyan-900 hover:to-teal-900 border border-cyan-500/40 text-cyan-300 hover:text-white transition-all text-xs font-semibold shadow-sm cursor-pointer"
+            title="TERA Explore 2.0: Interactive Road Safety, Games & Analytics"
+          >
+            <Compass className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Explore More</span>
           </button>
         </div>
 

@@ -1,12 +1,14 @@
 import axios from 'axios';
+import { signOutFirebase } from '../utils/firebase';
 
 const api = axios.create({
   baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
+  timeout: 30000,
 });
+
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('tera_token');
@@ -79,7 +81,9 @@ export const authApi = {
   logout: () => {
     localStorage.removeItem('tera_token');
     localStorage.removeItem('tera_user');
+    signOutFirebase();
   },
+
   getAuditLogs: async (limit: number = 50) => {
     const res = await api.get(`/auth/audit-logs?limit=${limit}`);
     return res.data;
@@ -163,6 +167,7 @@ export const incidentsApi = {
     is_location_verified?: boolean;
     evidence_urls?: any[];
     structured_extraction?: any;
+    idempotency_key?: string;
   }) => {
     const res = await api.post('/incidents/report', data);
     return res.data;
@@ -425,6 +430,157 @@ export const voiceApi = {
 export const geocodingApi = {
   reverseGeocode: async (lat: number, lng: number) => {
     const res = await api.get('/geocoding/reverse', { params: { lat, lng } });
+    return res.data;
+  }
+};
+
+export interface StatisticsData {
+  year_range: string;
+  source: string;
+  national_totals_2023: {
+    total_accidents: number;
+    fatalities: number;
+    injuries: number;
+    daily_average_fatalities: number;
+    vulnerable_road_users_pct: number;
+  };
+  annual_trends: Array<{ year: string; accidents: number; fatalities: number; injuries: number }>;
+  fatalities_by_road_user: Array<{ category: string; percentage: number; count: number }>;
+  road_type_distribution: Array<{ type: string; fatal_pct: number; accidents_pct: number }>;
+  contributing_factors: Array<{ factor: string; percentage: number; note: string }>;
+  equipment_non_compliance: {
+    two_wheeler_deaths_without_helmet_pct: number;
+    four_wheeler_deaths_without_seatbelt_pct: number;
+  };
+}
+
+export interface QuizQuestion {
+  id: string;
+  category: string;
+  scenario?: string;
+  question: string;
+  options: string[];
+  correct_index: number;
+  explanation: string;
+  citation: string;
+  difficulty: string;
+}
+
+export interface FamilyStory {
+  id: string;
+  title: string;
+  character: string;
+  tagline: string;
+  quote: string;
+  story: string;
+  safety_principle: string;
+  takeaways: string[];
+}
+
+export interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  category: string;
+  xp_reward: number;
+  unlocked?: boolean;
+  unlocked_at?: string;
+}
+
+export interface UserProgress {
+  user_id: string;
+  total_xp: number;
+  level: number;
+  level_title: string;
+  quizzes_completed: number;
+  quiz_accuracy_pct: number;
+  games_completed: number;
+  lessons_read: number;
+  streak_days: number;
+  earned_badges: string[];
+}
+
+export const exploreApi = {
+  getStatistics: async (): Promise<StatisticsData> => {
+    const res = await api.get('/explore/statistics');
+    const d = res.data;
+    if (d.national_totals_2023) return d;
+    return {
+      year_range: '2018-2023',
+      source: (d.sources && d.sources[0]?.title) || 'MoRTH Road Accidents in India 2023',
+      national_totals_2023: {
+        total_accidents: d.key_kpis?.total_accidents || 461312,
+        fatalities: d.key_kpis?.total_fatalities || 168491,
+        injuries: d.key_kpis?.total_injuries || 443366,
+        daily_average_fatalities: d.key_kpis?.daily_fatalities_avg || 462,
+        vulnerable_road_users_pct: 67.8
+      },
+      annual_trends: (d.annual_trends || []).map((t: any) => ({
+        year: String(t.year),
+        accidents: t.total_accidents || t.accidents,
+        fatalities: t.fatalities,
+        injuries: t.injuries
+      })),
+      fatalities_by_road_user: d.fatalities_by_road_user || [],
+      road_type_distribution: d.road_type_distribution || [
+        { type: 'National Highways (2.1% network)', fatal_pct: 36.4, accidents_pct: 32.9 },
+        { type: 'State Highways (3.0% network)', fatal_pct: 24.1, accidents_pct: 23.1 },
+        { type: 'Other District & City Roads (94.9%)', fatal_pct: 39.5, accidents_pct: 44.0 }
+      ],
+      contributing_factors: (d.contributing_factors || []).map((f: any) => ({
+        factor: f.factor || f.name,
+        percentage: f.percentage || f.share_pct,
+        note: f.note || f.preventable_with || ''
+      })),
+      equipment_non_compliance: d.equipment_non_compliance || {
+        two_wheeler_deaths_without_helmet_pct: 73.8,
+        four_wheeler_deaths_without_seatbelt_pct: 83.2
+      }
+    };
+  },
+  getScenarios: async () => {
+    const res = await api.get('/explore/scenarios');
+    return res.data?.scenarios || res.data;
+  },
+  getHazards: async () => {
+    const res = await api.get('/explore/hazards');
+    return res.data?.levels || res.data;
+  },
+  getQuizzes: async (params?: { category?: string; difficulty?: string }): Promise<QuizQuestion[]> => {
+    const res = await api.get('/explore/quizzes', { params });
+    return res.data?.questions || res.data;
+  },
+  getStories: async (): Promise<FamilyStory[]> => {
+    const res = await api.get('/explore/stories');
+    return res.data?.stories || res.data;
+  },
+  getAchievements: async (): Promise<Achievement[]> => {
+    const res = await api.get('/explore/achievements');
+    return res.data;
+  },
+  getProgress: async (sessionId?: string): Promise<UserProgress> => {
+    const res = await api.get('/explore/progress', { params: { session_id: sessionId } });
+    return res.data?.progress || res.data;
+  },
+  updateProgress: async (data: {
+    session_id?: string;
+    xp_earned: number;
+    activity_type: string;
+    activity_id: string;
+    passed?: boolean;
+    achievement_id?: string;
+    pledge_name?: string;
+  }) => {
+    const res = await api.post('/explore/progress', data);
+    return res.data;
+  },
+  signPledge: async (data: {
+    pledge_name: string;
+    family_members_count?: number;
+    commitments: string[];
+  }) => {
+    const res = await api.post('/explore/pledge', data);
     return res.data;
   }
 };

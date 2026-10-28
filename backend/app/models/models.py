@@ -388,3 +388,22 @@ class SimulationResult(Base):
     allocation_plan_json = Column(JSON, nullable=False)
     execution_time_ms = Column(Float, nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+
+class TranscriptionJob(Base):
+    __tablename__ = "transcription_job"
+    
+    job_id = Column(String(64), primary_key=True)
+    audio_path = Column(String(255), nullable=False)
+    audio_file_url = Column(String(255), nullable=True)
+    status = Column(String(32), default="PENDING", nullable=False, index=True)  # PENDING, TRANSCRIBING, COMPLETED, FAILED_RETRYABLE, FAILED_FINAL
+    provider = Column(String(64), default="GOOGLE_SPEECH", nullable=False)
+    transcript = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True)
+    detected_language = Column(String(32), default="en-US", nullable=True)
+    structured_extraction_json = Column(JSON, nullable=True)
+    incident_id = Column(String(64), ForeignKey("incident.incident_id", ondelete="SET NULL"), nullable=True, index=True)
+    retry_count = Column(Integer, default=0, nullable=False)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow, nullable=False)
+

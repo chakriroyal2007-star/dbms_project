@@ -24,26 +24,26 @@ export const ROLE_DEFAULT_TABS: Record<string, string> = {
 
 // Strict whitelist of permitted tabs per role
 export const ROLE_ALLOWED_TABS: Record<string, string[]> = {
-  REPORTER: ['reporter_portal', 'settings', 'dbms_architecture'],
-  FIELD_RESPONDER: ['field_responder', 'incidents', 'settings', 'dbms_architecture'],
-  HOSPITAL_COORDINATOR: ['hospital_coord', 'resources', 'ambulances', 'incidents', 'settings', 'dbms_architecture'],
-  ANALYST: ['analytics', 'historical', 'sql_playground', 'performance', 'explorer', 'dbms_architecture', 'settings'],
+  REPORTER: ['reporter_portal', 'settings', 'dbms_architecture', 'explore'],
+  FIELD_RESPONDER: ['field_responder', 'incidents', 'settings', 'dbms_architecture', 'explore'],
+  HOSPITAL_COORDINATOR: ['hospital_coord', 'resources', 'ambulances', 'incidents', 'settings', 'dbms_architecture', 'explore'],
+  ANALYST: ['analytics', 'historical', 'sql_playground', 'performance', 'explorer', 'dbms_architecture', 'settings', 'explore'],
   CONTROL_OPERATOR: [
     'dashboard', 'incidents', 'ambulances', 'hospitals', 'resources', 
     'teams', 'roads', 'allocation', 'simulation', 'historical', 
-    'settings', 'dbms_architecture'
+    'settings', 'dbms_architecture', 'explore'
   ],
   ADMINISTRATOR: [
     'admin_users', 'dashboard', 'incidents', 'ambulances', 'hospitals', 
     'resources', 'teams', 'roads', 'allocation', 'simulation', 'historical', 
     'analytics', 'sql_playground', 'performance', 'explorer', 'hospital_coord', 
-    'field_responder', 'reporter_portal', 'settings', 'dbms_architecture'
+    'field_responder', 'reporter_portal', 'settings', 'dbms_architecture', 'explore'
   ],
   ADMIN: [
     'admin_users', 'dashboard', 'incidents', 'ambulances', 'hospitals', 
     'resources', 'teams', 'roads', 'allocation', 'simulation', 'historical', 
     'analytics', 'sql_playground', 'performance', 'explorer', 'hospital_coord', 
-    'field_responder', 'reporter_portal', 'settings', 'dbms_architecture'
+    'field_responder', 'reporter_portal', 'settings', 'dbms_architecture', 'explore'
   ]
 };
 

@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -198,7 +199,7 @@ def update_hospital(
     gen_avail = data.general_beds_available if data.general_beds_available is not None else (latest_cap.general_beds_available if latest_cap else 50)
     
     new_cap = HospitalCapacityHistory(
-        capacity_history_id=f"HCH_{hospital_id}_{datetime.datetime.utcnow().strftime('%H%M%S')}",
+        capacity_history_id=f"HCH_{hospital_id}_{uuid.uuid4().hex[:12].upper()}",
         hospital_id=hospital_id,
         timestamp=datetime.datetime.utcnow(),
         icu_total=icu_tot,

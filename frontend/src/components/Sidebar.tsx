@@ -3,7 +3,7 @@ import {
   LayoutDashboard, AlertTriangle, Truck, Building2, 
   Package, Users, Navigation, History, Network, 
   Sliders, BarChart3, Cpu, Database, Settings as SettingsIcon,
-  ShieldCheck, Terminal, Layers, Send, Radio, FileText
+  ShieldCheck, Terminal, Layers, Send, Radio, FileText, Compass
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -40,6 +40,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user }
                 </div>
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 font-bold border border-rose-500/20">
                   SOS
+                </span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('explore')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                  activeTab === 'explore'
+                    ? 'bg-zinc-800 text-cyan-300 font-bold shadow-sm'
+                    : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-cyan-200'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5">
+                  <Compass className="w-4 h-4 text-cyan-400" />
+                  <span>Road Safety & Games</span>
+                </div>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 font-bold border border-cyan-500/20">
+                  5 Games
                 </span>
               </button>
 
@@ -359,6 +376,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user }
     { id: 'resources', label: 'Resource Stocks', icon: Package },
     { id: 'roads', label: 'Road Corridors', icon: Navigation },
     { id: 'settings', label: 'System Configuration', icon: SettingsIcon },
+    { id: 'explore', label: 'TERA Explore 2.0', icon: Compass, badge: '5 Games' },
   ];
 
   return (

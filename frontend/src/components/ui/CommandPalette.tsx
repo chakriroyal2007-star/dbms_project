@@ -4,20 +4,25 @@ import {
   Terminal, BarChart3, Database, ShieldCheck, ArrowRight, X, Radio
 } from 'lucide-react';
 import api from '../../services/api';
+import { User } from '../../types';
+import { ROLE_ALLOWED_TABS } from '../../utils/rbacRouting';
 
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigate: (tab: string) => void;
   onSelectIncident?: (id: string) => void;
+  user?: User | null;
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
   isOpen,
   onClose,
   onNavigate,
-  onSelectIncident
+  onSelectIncident,
+  user
 }) => {
+
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<{
     incidents: any[];

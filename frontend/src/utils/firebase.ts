@@ -4,7 +4,10 @@ import {
   RecaptchaVerifier, 
   signInWithPhoneNumber, 
   ConfirmationResult,
-  Auth
+  Auth,
+  onAuthStateChanged,
+  signOut,
+  User as FirebaseUser
 } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -18,6 +21,17 @@ const firebaseConfig = {
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth: Auth = getAuth(app);
+export { onAuthStateChanged, signOut };
+export type { FirebaseUser };
+
+export const signOutFirebase = async (): Promise<void> => {
+  try {
+    await signOut(auth);
+  } catch (e) {
+    console.warn('Firebase signout warning:', e);
+  }
+};
+
 
 export const isFirebaseConfigured = (): boolean => {
   return Boolean(

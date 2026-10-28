@@ -15,6 +15,7 @@ import { ReporterPortalPage } from './pages/ReporterPortalPage';
 import { HospitalCoordinatorPage } from './pages/HospitalCoordinatorPage';
 import { FieldResponderPage } from './pages/FieldResponderPage';
 import { DBMSArchitecturePage } from './pages/DBMSArchitecturePage';
+import { TeraExplorePage } from './pages/explore/TeraExplorePage';
 import { PublicTrackerModal } from './components/PublicTrackerModal';
 import { 
   IncidentsView, AmbulancesView, HospitalsView, 
@@ -175,6 +176,11 @@ export const App: React.FC = () => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
       if (hash) {
+        if (hash === 'explore') {
+          setView('app');
+          setActiveTab('explore');
+          return;
+        }
         if (!user) {
           setView('welcome');
           window.location.hash = '';
@@ -198,6 +204,12 @@ export const App: React.FC = () => {
   }, [user]);
 
   const handleSelectTab = (tab: string) => {
+    if (tab === 'explore') {
+      setView('app');
+      setActiveTab('explore');
+      window.location.hash = 'explore';
+      return;
+    }
     if (!user) {
       setView('welcome');
       window.location.hash = '';
@@ -294,6 +306,39 @@ export const App: React.FC = () => {
             setView('app');
             setActiveTab('dbms_architecture');
           }}
+          onExploreMore={() => {
+            setView('app');
+            setActiveTab('explore');
+            window.location.hash = 'explore';
+          }}
+        />
+        {trackedIncidentModal && (
+          <PublicTrackerModal
+            incident={trackedIncidentModal}
+            onClose={() => setTrackedIncidentModal(null)}
+          />
+        )}
+      </>
+    );
+  }
+
+  // Dedicated Immersive Road Safety Platform: TERA Explore 2.0
+  if (activeTab === 'explore') {
+    return (
+      <>
+        <TeraExplorePage
+          onReturnToOperations={() => {
+            if (user?.role) {
+              handleSelectTab(getDefaultTabForRole(user.role));
+            } else {
+              setView('welcome');
+              window.location.hash = '';
+            }
+          }}
+          onNavigateToSOS={() => {
+            setView('app');
+            handleSelectTab('reporter_portal');
+          }}
         />
         {trackedIncidentModal && (
           <PublicTrackerModal
@@ -317,6 +362,7 @@ export const App: React.FC = () => {
         }}
         onLogout={handleLogout}
         onLoadScenario={() => handleSelectTab('dashboard')}
+        onNavigateTab={handleSelectTab}
       />
 
       {/* Main Body Layout */}

@@ -10,10 +10,18 @@ class Settings(BaseModel):
     API_V1_STR: str = "/api"
     
     # Database Settings: Supports PostgreSQL or local SQLite without machine-specific hardcoded paths
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        f"sqlite:///{'/tmp/tera.db' if os.getenv('VERCEL') else str(BASE_DIR / 'tera.db')}"
+    DATABASE_URL: str = (
+        os.getenv(
+            "DATABASE_URL",
+            f"sqlite:///{'/tmp/tera.db' if os.getenv('VERCEL') else str(BASE_DIR / 'tera.db')}"
+        ).replace("postgres://", "postgresql://", 1)
+        if os.getenv("DATABASE_URL", "").startswith("postgres://")
+        else os.getenv(
+            "DATABASE_URL",
+            f"sqlite:///{'/tmp/tera.db' if os.getenv('VERCEL') else str(BASE_DIR / 'tera.db')}"
+        )
     )
+
     
     # JWT & Security Settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", "tera_production_grade_eoc_master_secret_key_2026")

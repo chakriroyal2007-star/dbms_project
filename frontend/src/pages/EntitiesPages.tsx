@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   AlertTriangle, Truck, Building2, Package, 
   Navigation, Users, Settings as SettingsIcon, RefreshCw, 
@@ -31,21 +31,56 @@ export const IncidentsView: React.FC<{ user?: User | null }> = ({ user }) => {
   const [newPatients, setNewPatients] = useState(5);
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchIncidents = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await incidentsApi.getAll({ limit: 100 });
-      setIncidents(data || []);
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.response?.data?.detail || 'Failed to fetch incidents from database.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const isPollingRef = useRef(false);
+  const latestReqRef = useRef(0);
 
-  useEffect(() => { fetchIncidents(); }, []);
+  const fetchIncidents = useCallback(async (isInitial = false) => {
+    if (isPollingRef.current && !isInitial) return;
+    isPollingRef.current = true;
+    const reqId = ++latestReqRef.current;
+    if (isInitial) setLoading(true);
+
+    try {
+      const data = await incidentsApi.getAll({ limit: 100 });
+      if (reqId >= latestReqRef.current) {
+        setIncidents(data || []);
+        setError(null);
+      }
+    } catch (err: any) {
+      if (reqId >= latestReqRef.current && isInitial) {
+        console.error(err);
+        setError(err?.response?.data?.detail || 'Failed to fetch incidents from database.');
+      }
+    } finally {
+      if (reqId >= latestReqRef.current) {
+        setLoading(false);
+      }
+      isPollingRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchIncidents(true);
+
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchIncidents(false);
+      }
+    }, 2500);
+
+    const handleVis = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchIncidents(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVis);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVis);
+    };
+  }, [fetchIncidents]);
 
   const handleCreateIncident = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +148,7 @@ export const IncidentsView: React.FC<{ user?: User | null }> = ({ user }) => {
         </div>
 
         <div className="flex items-center gap-3">
-          <button onClick={fetchIncidents} className="px-3 py-2 rounded-lg bg-[#111827] hover:bg-[#1C2538] border border-[#1F293D] text-xs font-medium text-gray-300 cursor-pointer">
+          <button onClick={() => fetchIncidents(true)} className="px-3 py-2 rounded-lg bg-[#111827] hover:bg-[#1C2538] border border-[#1F293D] text-xs font-medium text-gray-300 cursor-pointer">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
           <button
@@ -591,6 +626,9 @@ export const ResourcesView: React.FC<{ user?: User | null }> = ({ user }) => {
   const [resources, setResources] = useState<ResourceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [adjustError, setAdjustError] = useState<string | null>(null);
+  const [adjustSuccess, setAdjustSuccess] = useState<string | null>(null);
+  const [adjustingId, setAdjustingId] = useState<string | null>(null);
 
   const fetchResources = async () => {
     try {
@@ -610,16 +648,26 @@ export const ResourcesView: React.FC<{ user?: User | null }> = ({ user }) => {
 
   const handleAdjust = async (resId: string, delta: number) => {
     try {
-      await resourcesApi.adjust(resId, delta, "Stock adjustment from EOC");
+      setAdjustingId(resId);
+      setAdjustError(null);
+      setAdjustSuccess(null);
+      const res = await resourcesApi.adjust(resId, delta, "Stock adjustment from EOC");
+      setAdjustSuccess(`Updated ${res.resource_type}: Available stock is now ${res.new_available_quantity}/${res.total_quantity}`);
       fetchResources();
+      setTimeout(() => setAdjustSuccess(null), 4000);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to adjust quantity.');
+      const msg = err?.response?.data?.detail || 'Failed to adjust quantity.';
+      setAdjustError(msg);
+      setTimeout(() => setAdjustError(null), 6000);
+    } finally {
+      setAdjustingId(null);
     }
   };
 
   if (error) {
     return <ErrorState title="RESOURCES DATABASE ERROR" message={error} onRetry={fetchResources} loading={loading} />;
   }
+
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto select-none">
@@ -642,7 +690,29 @@ export const ResourcesView: React.FC<{ user?: User | null }> = ({ user }) => {
         </button>
       </div>
 
+      {adjustError && (
+
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{adjustError}</span>
+          </div>
+          <button onClick={() => setAdjustError(null)} className="text-rose-400 hover:text-white font-bold ml-2">×</button>
+        </div>
+      )}
+
+      {adjustSuccess && (
+        <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{adjustSuccess}</span>
+          </div>
+          <button onClick={() => setAdjustSuccess(null)} className="text-emerald-400 hover:text-white font-bold ml-2">×</button>
+        </div>
+      )}
+
       <div className="p-4 rounded-xl bg-[#0E1524] border border-[#1F293D] overflow-x-auto shadow-xl">
+
         <table className="w-full text-left text-xs font-mono">
           <thead className="bg-[#141C2E] text-gray-400 uppercase text-[10px] border-b border-[#1F293D]">
             <tr>
@@ -671,21 +741,31 @@ export const ResourcesView: React.FC<{ user?: User | null }> = ({ user }) => {
                   </span>
                 </td>
                 <td className="p-3 text-right space-x-2">
-                  <button
-                    onClick={() => handleAdjust(r.resource_id, -1)}
-                    className="px-2 py-0.5 bg-red-950/60 border border-red-800/40 text-red-300 rounded font-bold hover:bg-red-900 cursor-pointer"
-                    title="Deduct 1"
-                  >
-                    -1
-                  </button>
-                  <button
-                    onClick={() => handleAdjust(r.resource_id, 1)}
-                    className="px-2 py-0.5 bg-emerald-950/60 border border-emerald-800/40 text-emerald-300 rounded font-bold hover:bg-emerald-900 cursor-pointer"
-                    title="Add 1"
-                  >
-                    +1
-                  </button>
+                  {(() => {
+                    const isForeignFacility = user?.role?.toUpperCase() === 'HOSPITAL_COORDINATOR' && user?.organization_id && user.organization_id !== r.hospital_id;
+                    return (
+                      <>
+                        <button
+                          onClick={() => handleAdjust(r.resource_id, -1)}
+                          disabled={adjustingId === r.resource_id || r.available_quantity <= 0 || Boolean(isForeignFacility)}
+                          className="px-2.5 py-1 bg-red-950/60 border border-red-800/40 text-red-300 rounded font-bold hover:bg-red-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          title={isForeignFacility ? `Only ${r.hospital_name || r.hospital_id} coordinator can modify this stock` : "Deduct 1"}
+                        >
+                          -1
+                        </button>
+                        <button
+                          onClick={() => handleAdjust(r.resource_id, 1)}
+                          disabled={adjustingId === r.resource_id || r.available_quantity >= r.total_quantity || Boolean(isForeignFacility)}
+                          className="px-2.5 py-1 bg-emerald-950/60 border border-emerald-800/40 text-emerald-300 rounded font-bold hover:bg-emerald-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          title={isForeignFacility ? `Only ${r.hospital_name || r.hospital_id} coordinator can modify this stock` : "Add 1"}
+                        >
+                          +1
+                        </button>
+                      </>
+                    );
+                  })()}
                 </td>
+
               </tr>
             ))}
           </tbody>

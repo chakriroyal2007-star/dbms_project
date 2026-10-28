@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   AlertTriangle, Users, Truck, Bed, ShieldAlert, 
   Activity, RefreshCw, AlertCircle, ArrowUpRight, Flame, 
@@ -29,8 +29,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [roads, setRoads] = useState<RoadSegment[]>([]);
   const [alerts, setAlerts] = useState<ResourceAlert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [queueError, setQueueError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   // Active Workspace View Tab: 'queue' | 'map' | 'hospitals'
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'queue' | 'map' | 'hospitals'>('queue');
@@ -41,47 +44,115 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [linkingMasterId, setLinkingMasterId] = useState<string>('');
   const [linkingLoading, setLinkingLoading] = useState(false);
 
-  const fetchDashboardData = async () => {
+  // Concurrency & Sequence Guards
+  const isPollingRef = useRef(false);
+  const latestRequestIdRef = useRef(0);
+
+  const fetchDashboardData = useCallback(async (isManual: boolean = false) => {
+    if (isPollingRef.current && !isManual) return;
+    isPollingRef.current = true;
+
+    const currentRequestId = ++latestRequestIdRef.current;
+    if (isManual) {
+      setIsRefreshing(true);
+    }
+
     try {
-      setLoading(true);
-      const [mRes, iRes, aRes, hRes, rRes, altRes] = await Promise.all([
+      // 1. Critical path: Authoritative incident queue (100 latest operational reports)
+      const incidentsPromise = api.get('/incidents?limit=100');
+
+      // 2. Secondary telemetry settled independently so metric failures never block queue
+      const secondaryPromise = Promise.allSettled([
         api.get('/dashboard/metrics'),
-        api.get('/incidents?limit=50'),
         api.get('/ambulances?limit=50'),
-        api.get('/hospitals?limit=25'),
+        api.get('/hospitals?limit=50'),
         api.get('/roads?limit=50'),
         api.get('/dashboard/alerts')
       ]);
 
-      setMetrics(mRes.data);
-      setIncidents(iRes.data || []);
-      setAmbulances(aRes.data || []);
-      setHospitals(hRes.data || []);
-      setRoads(rRes.data || []);
-      setAlerts(altRes.data || []);
-    } catch (err) {
-      console.error('Error fetching dashboard data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+      const [iRes, secondaryResults] = await Promise.all([incidentsPromise, secondaryPromise]);
 
-  useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        fetchDashboardData();
+      // Discard older out-of-order response if a newer query already finished
+      if (currentRequestId < latestRequestIdRef.current) {
+        return;
       }
-    }, 3000);
-    return () => clearInterval(interval);
+
+      const freshIncidents: Incident[] = iRes.data || [];
+      setIncidents(freshIncidents);
+      setQueueError(null);
+      setLastSyncedAt(new Date());
+
+      // Reconcile open modal inspection data with latest authoritative record
+      setReviewIncident(prev => {
+        if (!prev) return null;
+        const matching = freshIncidents.find(i => i.incident_id === prev.incident_id);
+        return matching || prev;
+      });
+
+      // Populate secondary telemetry if fulfilled
+      const [mRes, aRes, hRes, rRes, altRes] = secondaryResults;
+      if (mRes.status === 'fulfilled') setMetrics(mRes.value.data);
+      if (aRes.status === 'fulfilled') setAmbulances(aRes.value.data || []);
+      if (hRes.status === 'fulfilled') setHospitals(hRes.value.data || []);
+      if (rRes.status === 'fulfilled') setRoads(rRes.value.data || []);
+      if (altRes.status === 'fulfilled') setAlerts(altRes.value.data || []);
+
+    } catch (err: any) {
+      if (currentRequestId >= latestRequestIdRef.current) {
+        const httpStatus = err?.response?.status;
+        let errorMessage = 'Failed to synchronize incident queue with authoritative database.';
+        if (httpStatus === 401) {
+          errorMessage = 'Authentication session expired or required. Please sign in as an Operator.';
+        } else if (httpStatus === 403) {
+          errorMessage = 'Access denied. Control Operator role required to view incident queue.';
+        } else if (httpStatus >= 500) {
+          errorMessage = 'EOC database service temporarily unavailable. Automatic reconnection active...';
+        } else if (err?.message && err.message.toLowerCase().includes('network')) {
+          errorMessage = 'Network connection degraded. Reconnecting to emergency mesh...';
+        }
+        setQueueError(errorMessage);
+        console.warn('[DASHBOARD_SYNC_WARNING]', err?.message || err);
+      }
+    } finally {
+      if (currentRequestId >= latestRequestIdRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
+      isPollingRef.current = false;
+    }
   }, []);
 
+  useEffect(() => {
+    // Initial authoritative fetch
+    fetchDashboardData(true);
+
+    // Fast, bounded near-real-time polling interval (2 seconds)
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchDashboardData(false);
+      }
+    }, 2000);
+
+    // Immediate authoritative synchronization when browser tab regains visibility
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchDashboardData(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchDashboardData]);
 
   const handleVerifyIncident = async (incId: string) => {
     try {
       await incidentsApi.transitionStatus(incId, 'VERIFIED');
       setActionSuccess(`Incident ${incId} verified: Status transitioned to VERIFIED.`);
-      fetchDashboardData();
+      fetchDashboardData(true);
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
       setActionError(err?.response?.data?.detail || 'Failed to verify incident.');
@@ -93,7 +164,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     try {
       await incidentsApi.transitionStatus(incId, 'ACTIVE');
       setActionSuccess(`Incident ${incId} activated for fleet dispatch & resource coordination.`);
-      fetchDashboardData();
+      fetchDashboardData(true);
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
       setActionError(err?.response?.data?.detail || 'Failed to activate incident.');
@@ -106,7 +177,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     try {
       await incidentsApi.transitionStatus(incId, 'CANCELLED');
       setActionSuccess(`Incident ${incId} moved to CANCELLED state.`);
-      fetchDashboardData();
+      fetchDashboardData(true);
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
       setActionError(err?.response?.data?.detail || 'Failed to cancel incident.');
@@ -121,7 +192,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       await incidentsApi.linkDuplicate(incidentId, masterId.trim().toUpperCase());
       setActionSuccess(`Linked incident ${incidentId} as duplicate of master ${masterId}!`);
       setReviewIncident(null);
-      fetchDashboardData();
+      fetchDashboardData(true);
       setTimeout(() => setActionSuccess(null), 4000);
     } catch (err: any) {
       setActionError(err?.response?.data?.detail || 'Failed to link duplicate incident.');
@@ -131,16 +202,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     }
   };
 
-  // Filtered incidents
+  // Complete lifecycle status categorization
   const filteredIncidents = incidents.filter(i => {
     if (statusFilter === 'ALL') return true;
-    if (statusFilter === 'RECEIVED') return i.status === 'RECEIVED' || i.status === 'UNDER_REVIEW';
-    if (statusFilter === 'ACTIVE') return i.status === 'ACTIVE' || i.status === 'VERIFIED' || i.status === 'ASSIGNED' || i.status === 'EN_ROUTE';
-    if (statusFilter === 'RESOLVED') return i.status === 'RESOLVED' || i.status === 'CONTAINED' || i.status === 'CANCELLED';
+    if (statusFilter === 'RECEIVED') {
+      return i.status === 'RECEIVED' || i.status === 'UNDER_REVIEW' || i.status === 'SUBMITTED' || i.status === 'DRAFT';
+    }
+    if (statusFilter === 'ACTIVE') {
+      return i.status === 'ACTIVE' || i.status === 'VERIFIED' || i.status === 'ASSIGNED' || 
+             i.status === 'EN_ROUTE' || i.status === 'RESPONSE_REQUESTED' || 
+             i.status === 'RESOURCE_ACKNOWLEDGED' || i.status === 'ARRIVED';
+    }
+    if (statusFilter === 'RESOLVED') {
+      return i.status === 'RESOLVED' || i.status === 'CONTAINED' || i.status === 'CANCELLED' || i.status === 'REJECTED';
+    }
     return true;
   });
 
-  const pendingVerificationCount = incidents.filter(i => i.status === 'RECEIVED').length;
+  // Triage count includes all incoming pending review states
+  const pendingVerificationCount = incidents.filter(i => 
+    i.status === 'RECEIVED' || i.status === 'UNDER_REVIEW' || i.status === 'SUBMITTED' || i.status === 'DRAFT'
+  ).length;
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto font-sans text-zinc-100">
@@ -163,13 +245,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          {lastSyncedAt && (
+            <span className="text-[10px] text-zinc-500 font-mono hidden sm:inline">
+              Mesh Synced: {lastSyncedAt.toLocaleTimeString()}
+            </span>
+          )}
           <button
-            onClick={fetchDashboardData}
-            disabled={loading}
+            onClick={() => fetchDashboardData(true)}
+            disabled={loading || isRefreshing}
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-medium text-zinc-300 transition-colors cursor-pointer"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
-            <span>Refresh State</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading || isRefreshing ? 'animate-spin text-cyan-400' : ''}`} />
+            <span>{isRefreshing ? 'Syncing...' : 'Refresh State'}</span>
           </button>
         </div>
       </div>
@@ -323,7 +410,30 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       {/* 4. WORKSPACE TAB A: INCIDENT QUEUE */}
       {activeWorkspaceTab === 'queue' && (
         <div className="space-y-4">
-          {filteredIncidents.length === 0 ? (
+          {queueError && (
+            <div className="p-4 bg-rose-950/60 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-center justify-between gap-3 animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{queueError}</span>
+              </div>
+              <button
+                onClick={() => fetchDashboardData(true)}
+                className="px-3 py-1.5 bg-rose-900 hover:bg-rose-800 text-white rounded-lg font-mono font-bold text-[11px] cursor-pointer transition-colors shrink-0"
+              >
+                Retry Sync
+              </button>
+            </div>
+          )}
+
+          {loading && incidents.length === 0 ? (
+            <div className="p-12 text-center rounded-2xl bg-[#0D121F] border border-zinc-800/80 space-y-3">
+              <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mx-auto" />
+              <div className="text-sm font-semibold text-zinc-300">Synchronizing Live Incident Queue...</div>
+              <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                Connecting to authoritative database and establishing operational queue state.
+              </p>
+            </div>
+          ) : filteredIncidents.length === 0 ? (
             <div className="p-12 text-center rounded-2xl bg-[#0D121F] border border-zinc-800/80 space-y-2">
               <CheckCircle2 className="w-8 h-8 text-zinc-600 mx-auto" />
               <div className="text-sm font-semibold text-zinc-300">No Incidents in this View</div>

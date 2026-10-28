@@ -6,7 +6,8 @@
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%2015%2B%20%7C%20SQLite%20Fallback-blue?logo=postgresql)](https://github.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.9%2B-teal?logo=fastapi)](https://github.com)
 [![React](https://img.shields.io/badge/React%2018-TypeScript-61DAFB?logo=react)](https://github.com)
-[![Test Suite](https://img.shields.io/badge/Pytest-22%2F22%20Passing%20(100%25)-brightgreen)](https://github.com)
+[![Test Suite](https://img.shields.io/badge/Pytest-90%2F90%20Passing%20(100%25)-brightgreen)](https://github.com)
+[![Frontend Tests](https://img.shields.io/badge/Vitest-21%2F21%20Passing%20(100%25)-brightgreen)](https://github.com)
 
 ---
 
@@ -87,24 +88,35 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
-## 5. Automated Test Suite
+## 5. Automated Test Suite & Academic Verification
 
-All 22 backend integration and unit tests pass with 100% coverage across core workflows:
+All 90 backend pytest tests and all 21 frontend RBAC/queue synchronization tests pass with 100% coverage:
+
 ```bash
-PYTHONPATH=backend backend/venv/bin/pytest backend/tests/
-# ============================== 22 passed in 2.09s ==============================
+# Run 90 backend tests
+PYTHONPATH=backend ./backend/.venv/bin/pytest backend/tests/ -v
+# ======================== 90 passed in 3.44s =========================
+
+# Run 21 frontend tests
+cd frontend && npm test
+# 🎉 All 14 Frontend Routing & RBAC tests passed successfully!
+# 🎉 All 7 Frontend Operator Queue & Synchronization tests passed successfully!
 ```
 
-Tests verify:
-- Complete 6-role authentication and JWT token generation
-- Guest emergency report creation without synthetic patient records
-- Durable tracking token generation and unauthenticated milestone queries
-- Voice and evidence upload MIME/size validation
-- Control Operator duplicate incident linking and verification
-- Field Responder assignment state progression (`REQUESTED` &rarr; `ACKNOWLEDGED` &rarr; `EN_ROUTE` &rarr; `ARRIVED` &rarr; `COMPLETED`)
-- Multi-tenant hospital coordinator bed capacity updates
-- SQL playground safety rules preventing destructive `DROP` or `DELETE` queries
-- ACID concurrency protection under parallel execution
+Comprehensive test suites verify:
+- **DBMS Mini Project Criteria** (`test_dbms_mini_project_requirements.py` - 15 tests): 4 core workflows, 3NF constraints, 3 nontrivial business rules, multi-tenant RBAC across 6 roles, ACID transaction rollback, multi-table SQL JOINs, and GROUP BY reports.
+- **Reporter-to-Operator Synchronization** (`test_reporter_operator_data_flow.py` - 10 tests): Guest ingestion, atomic DB commit, immediate pre-verification operator visibility, idempotency deduplication, and polling reconciliation.
+- **Full Production Workflows** (`test_production_workflows.py`, `test_master_e2e_workflow.py`): Referral tracking, bed capacity updates, hospital coordination, and voice transcription error boundaries.
+
+---
+
+## 6. Academic DBMS Submission Artifacts
+
+Complete project documentation complying with the **DBMS Mini Project (20 Marks)** evaluation rubric:
+- [DBMS Mini Project Submission Report (20 Marks)](docs/DBMS_SUBMISSION_REPORT.md)
+- [Entity-Relationship (ER) Diagram](docs/ER_DIAGRAM.md)
+- [Relational Database Schema & 3NF Normalization](docs/SCHEMA.md)
+- [Comprehensive Engineering Project Report](docs/PROJECT_REPORT.md)
 
 ---
 

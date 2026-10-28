@@ -11,16 +11,25 @@ from app.schemas.schemas import EOCMetrics, ResourceAlert
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
+# Canonical active incident statuses undergoing triage, dispatch, or containment
+ACTIVE_INCIDENT_STATUSES = [
+    'DRAFT', 'SUBMITTED', 'RECEIVED', 'UNDER_REVIEW', 'VERIFIED',
+    'RESPONSE_REQUESTED', 'RESOURCE_ACKNOWLEDGED', 'ASSIGNED',
+    'EN_ROUTE', 'ARRIVED', 'ACTIVE', 'REPORTED', 'CONTAINED'
+]
+
 @router.get("/metrics", response_model=EOCMetrics)
 def get_eoc_metrics(db: Session = Depends(get_db)):
-    # 1. Active & Received incidents
+    from sqlalchemy import func
+
+    # 1. Active & Received incidents (inclusive of all operational states before resolution/cancellation)
     active_incidents = db.query(Incident).filter(
-        Incident.status.in_(['RECEIVED', 'VERIFIED', 'ACTIVE', 'REPORTED', 'CONTAINED'])
+        Incident.status.in_(ACTIVE_INCIDENT_STATUSES)
     ).count()
     
-    # 2. Critical patients
+    # 2. Critical patients in active incidents
     critical_patients = db.query(Patient).join(Incident).filter(
-        Incident.status.in_(['RECEIVED', 'VERIFIED', 'ACTIVE', 'REPORTED', 'CONTAINED']),
+        Incident.status.in_(ACTIVE_INCIDENT_STATUSES),
         Patient.severity == 'CRITICAL'
     ).count()
     
@@ -28,22 +37,22 @@ def get_eoc_metrics(db: Session = Depends(get_db)):
     total_ambulances = db.query(Ambulance).count()
     available_ambulances = db.query(Ambulance).filter(Ambulance.current_status == 'AVAILABLE').count()
     
-    # 4. Hospital capacities (latest per hospital)
-    hospitals = db.query(Hospital).filter(Hospital.status == 'ACTIVE').all()
-    total_icu = 0
-    avail_icu = 0
-    total_em = 0
-    avail_em = 0
-    
-    for h in hospitals:
-        latest_cap = db.query(HospitalCapacityHistory).filter(
-            HospitalCapacityHistory.hospital_id == h.hospital_id
-        ).order_by(HospitalCapacityHistory.timestamp.desc()).first()
-        if latest_cap:
-            total_icu += latest_cap.icu_total
-            avail_icu += latest_cap.icu_available
-            total_em += latest_cap.emergency_beds_total
-            avail_em += latest_cap.emergency_beds_available
+    # 4. Hospital capacities (optimized single subquery for latest capacity per hospital)
+    subq = db.query(
+        HospitalCapacityHistory.hospital_id,
+        func.max(HospitalCapacityHistory.timestamp).label("max_ts")
+    ).group_by(HospitalCapacityHistory.hospital_id).subquery()
+
+    latest_caps = db.query(HospitalCapacityHistory).join(
+        subq,
+        (HospitalCapacityHistory.hospital_id == subq.c.hospital_id) &
+        (HospitalCapacityHistory.timestamp == subq.c.max_ts)
+    ).all()
+
+    total_icu = sum(c.icu_total for c in latest_caps)
+    avail_icu = sum(c.icu_available for c in latest_caps)
+    total_em = sum(c.emergency_beds_total for c in latest_caps)
+    avail_em = sum(c.emergency_beds_available for c in latest_caps)
 
     # 5. Emergency Teams
     total_teams = db.query(EmergencyTeam).count()

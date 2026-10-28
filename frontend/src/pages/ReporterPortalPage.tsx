@@ -66,6 +66,7 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeIdempotencyKey, setActiveIdempotencyKey] = useState<string>(() => `IDEMP_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`);
 
   // My Reports & Live Persistence
   const [myReports, setMyReports] = useState<Incident[]>([]);
@@ -418,6 +419,7 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
   // ---------------------------------------------------------------------------
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return; // Guard against duplicate concurrent submit actions
     if (!locationName.trim() || !description.trim()) {
       setError("Please fill in location and emergency description.");
       return;
@@ -448,6 +450,7 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
         location_accuracy_meters: locationAccuracy || undefined,
         is_location_verified: isLocationVerified,
         evidence_urls: uploadedEvidence,
+        idempotency_key: activeIdempotencyKey,
         structured_extraction: structuredExtraction ? {
           ...structuredExtraction,
           confirmed_transcript: voiceTranscript,
@@ -460,6 +463,8 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
 
       const data = await incidentsApi.reportEmergency(payload);
       setReceipt(data);
+      // Generate fresh idempotency key for any future distinct submission
+      setActiveIdempotencyKey(`IDEMP_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`);
 
       // Save to local storage for quick bystander tracking recovery
       try {
@@ -480,7 +485,8 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
 
       fetchMyReports();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Failed to submit emergency report to database.");
+      // Form fields are preserved so bystander can correct or retry immediately
+      setError(err?.response?.data?.detail || "Failed to submit emergency report to database. Please retry.");
     } finally {
       setSubmitting(false);
     }
@@ -495,6 +501,7 @@ export const ReporterPortalPage: React.FC<ReporterPortalPageProps> = ({
     setUploadedEvidence([]);
     setPatientCount(1);
     setUnknownCasualties(false);
+    setActiveIdempotencyKey(`IDEMP_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`);
   };
 
   const openTrackerForCode = async (code: string) => {

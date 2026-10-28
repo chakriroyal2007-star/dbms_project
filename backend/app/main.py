@@ -11,7 +11,7 @@ from app.api import (
     auth, dashboard, incidents, ambulances, hospitals,
     resources, roads, temporal, allocation, simulation,
     analytics, performance, explorer, scenarios, sql_playground,
-    evidence, coordination, voice, geocoding
+    evidence, coordination, voice, geocoding, explore
 )
 
 # On Vercel runtime with ephemeral SQLite: bootstrap from packaged DB or seed baseline
@@ -24,8 +24,13 @@ if os.getenv("VERCEL") and "sqlite" in settings.DATABASE_URL:
         except Exception:
             pass
 
-# Initialize database schema tables
-Base.metadata.create_all(bind=engine)
+# Initialize database schema tables & migrations
+try:
+    from migrate import run_migrations
+    run_migrations()
+except Exception as mig_err:
+    print(f"[STARTUP WARNING] Migration check: {mig_err}")
+    Base.metadata.create_all(bind=engine)
 
 # Ensure baseline accounts and infrastructure exist if user table is empty
 try:
@@ -34,6 +39,7 @@ try:
             seed_database(db=db, force_reset=False)
 except Exception:
     pass
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -72,6 +78,7 @@ app.include_router(evidence.router, prefix=settings.API_V1_STR)
 app.include_router(coordination.router, prefix=settings.API_V1_STR)
 app.include_router(voice.router, prefix=settings.API_V1_STR)
 app.include_router(geocoding.router, prefix=settings.API_V1_STR)
+app.include_router(explore.router, prefix=settings.API_V1_STR)
 
 # Versioned /api/v1 aliases for explicit enterprise API clients
 app.include_router(voice.router, prefix="/api/v1")
@@ -94,19 +101,37 @@ def root():
 @app.get("/health")
 @app.get("/api/health")
 def health():
+    from sqlalchemy import text
+    db_connected = False
+    try:
+        with SessionLocal() as check_db:
+            check_db.execute(text("SELECT 1"))
+            db_connected = True
+    except Exception:
+        db_connected = False
+
+    is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+    is_ephemeral_sqlite = is_serverless and "sqlite" in str(engine.url)
+
     return {
-        "status": "HEALTHY",
+        "status": "HEALTHY" if db_connected else "DEGRADED",
+        "database_connected": db_connected,
         "database_dialect": engine.dialect.name,
+        "database_persistence": "EPHEMERAL_SERVERLESS_STORAGE" if is_ephemeral_sqlite else "DURABLE",
+        "serverless_runtime": is_serverless,
         "environment": settings.ENVIRONMENT
     }
 
 @app.get("/api")
 def api_root():
+    is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+    is_ephemeral_sqlite = is_serverless and "sqlite" in str(engine.url)
     return {
         "product": "TERA API",
         "status": "ONLINE",
         "database_dialect": engine.dialect.name,
-        "database_connected": True
+        "database_connected": True,
+        "database_persistence": "EPHEMERAL_SERVERLESS_STORAGE" if is_ephemeral_sqlite else "DURABLE"
     }
 
 if __name__ == "__main__":

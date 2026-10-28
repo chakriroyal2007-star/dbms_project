@@ -3,7 +3,7 @@ import {
   Shield, Radio, Building2, Truck, BarChart3, Settings, 
   ArrowRight, Search, Lock, User, Mail, Eye, EyeOff, 
   AlertTriangle, CheckCircle2, ChevronRight, X, HeartPulse,
-  PhoneCall, LifeBuoy, FileText, Clock, Sparkles, Phone, KeyRound, ShieldCheck
+  PhoneCall, LifeBuoy, FileText, Clock, Sparkles, Phone, KeyRound, ShieldCheck, Compass
 } from 'lucide-react';
 import { User as UserType, RoleType, PublicTrackedIncident } from '../types';
 import { authApi, incidentsApi } from '../services/api';
@@ -22,6 +22,7 @@ interface WelcomeRoleSelectionPageProps {
   onGuestEmergencyReport: () => void;
   onTrackIncident: (incident: PublicTrackedIncident) => void;
   onExploreSystem: () => void;
+  onExploreMore?: () => void;
 }
 
 interface RoleCardConfig {
@@ -45,7 +46,8 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
   onLoginSuccess,
   onGuestEmergencyReport,
   onTrackIncident,
-  onExploreSystem
+  onExploreSystem,
+  onExploreMore
 }) => {
   // Modal & Auth State
   const [selectedRoleForAuth, setSelectedRoleForAuth] = useState<RoleCardConfig | null>(null);
@@ -405,6 +407,17 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
 
         {/* Header Actions */}
         <div className="flex items-center gap-3">
+          {onExploreMore && (
+            <button
+              onClick={onExploreMore}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-950/80 to-teal-950/80 hover:from-cyan-900/90 hover:to-teal-900/90 text-cyan-300 hover:text-white border border-cyan-500/40 transition-all text-xs font-semibold cursor-pointer shadow-sm"
+              title="Interactive Road Safety Games, Quizzes, & Analytics"
+            >
+              <Compass className="w-4 h-4 text-cyan-400" />
+              <span>Explore Road Safety & Games</span>
+            </button>
+          )}
+
           <button
             onClick={onExploreSystem}
             className="hidden sm:inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 border border-zinc-800/80 transition-all text-xs font-medium cursor-pointer"
@@ -557,6 +570,34 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
+
+        {/* TERA Explore 2.0 Discovery Banner */}
+        {onExploreMore && (
+          <div className="w-full max-w-4xl p-6 rounded-2xl bg-gradient-to-r from-cyan-950/40 via-slate-900/80 to-teal-950/40 border border-cyan-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 text-left shadow-xl">
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center flex-shrink-0 shadow-inner">
+                <Compass className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-white">TERA Explore 2.0: Road Safety & Prevention Platform</h4>
+                  <span className="text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded-full font-mono font-bold">5 Games • MoRTH Data</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  “Every Journey Deserves a Safe Return.” Play road safety simulation games, hazard perception tests, and earn certificates.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={onExploreMore}
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:brightness-110 text-slate-950 font-bold text-xs shadow-lg transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-2"
+            >
+              <span>Explore Road Safety</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </main>
 
       {/* Footer */}
