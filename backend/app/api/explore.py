@@ -51,6 +51,10 @@ class SafetyPledgeRequest(BaseModel):
     family_members_count: int = 1
     commitments: List[str]
 
+class DailyChallengeCompleteRequest(BaseModel):
+    challenge_id: str
+    session_id: Optional[str] = None
+
 # ------------------------------------------------------------------------------
 # 1. Authoritative Road Safety Statistical Datasets
 # ------------------------------------------------------------------------------
@@ -826,31 +830,62 @@ def get_user_learning_progress(
     Retrieves the learner's authoritative Safety Journey progression,
     earned badges, and persistent Safety XP from database.
     """
-    user_key = current_user.user_id if current_user else session_id
-    prog = LearningProgressionService.get_or_create_user_progress(db, user_key, current_user)
+    if current_user and session_id and session_id != current_user.user_id and session_id != "guest_session":
+        prog = LearningProgressionService.migrate_guest_progress(db, session_id, current_user)
+        user_key = current_user.user_id
+    else:
+        user_key = current_user.user_id if current_user else session_id
+        prog = LearningProgressionService.get_or_create_user_progress(db, user_key, current_user)
+
     badges = db.query(UserBadge).filter(UserBadge.user_key == user_key).all()
-    
     earned_badge_ids = [b.badge_id for b in badges]
+    level_prog = LearningProgressionService.calculate_level_progression(prog.total_xp)
+    daily_challenges = LearningProgressionService.get_daily_challenges(db, user_key)
+
     return {
         "user_key": prog.user_key,
         "user_id": prog.user_id or "guest_citizen",
         "is_authenticated": current_user is not None,
         "username": prog.username,
         "total_xp": prog.total_xp,
+        "lifetime_xp": prog.total_xp,
         "level": prog.level,
         "level_title": prog.level_title,
+        "level_progress": level_prog,
         "quizzes_completed": prog.quizzes_completed,
         "quiz_accuracy_pct": prog.quiz_accuracy_pct,
         "games_completed": prog.games_completed,
         "lessons_read": prog.lessons_read,
+        "lessons_completed": prog.lessons_read,
         "case_studies_completed": prog.case_studies_completed,
         "streak_days": prog.streak_days,
+        "longest_streak_days": max(prog.streak_days, 1),
         "pledge_signed": prog.pledge_signed,
         "pledge_name": prog.pledge_name,
         "earned_achievements": earned_badge_ids,
         "earned_badges": earned_badge_ids,
+        "daily_challenges": daily_challenges,
         "last_activity_at": prog.last_activity_at.isoformat()
     }
+
+@router.post("/daily-challenge/complete")
+def complete_daily_challenge_endpoint(
+    req: DailyChallengeCompleteRequest,
+    current_user: Optional[UserAccount] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Authoritatively validates and completes a daily safety challenge,
+    recording an immutable completion record and awarding verified XP once per day.
+    """
+    user_key = current_user.user_id if current_user else (req.session_id or "guest_session")
+    result = LearningProgressionService.complete_daily_challenge(
+        db=db,
+        user_key=user_key,
+        challenge_id=req.challenge_id,
+        current_user=current_user
+    )
+    return result
 
 @router.post("/activity/complete")
 def complete_learning_activity(

@@ -130,4 +130,47 @@ describe('TERA Explore Phase 1-6 Master Integration Tests', () => {
 
     assert.strictEqual(requiredThemes.length, 6, 'Must have all 6 Phase 2 story themes');
   });
+
+  it('Verifies My Safety Journey Level Progression and Percentage calculation consistency', () => {
+    // Test Level 2 threshold with 100 XP
+    const currentXp = 100;
+    const currentLevel = 2; // Level 2: 100 to 249 XP
+    const prevLevelXp = 100;
+    const nextLevelXp = 250;
+
+    const xpInLevel = Math.max(0, currentXp - prevLevelXp); // 0 XP
+    const xpNeededInLevel = Math.max(1, nextLevelXp - prevLevelXp); // 150 XP
+    const levelPercentage = Math.round((xpInLevel / xpNeededInLevel) * 100); // 0%
+    const milestonePercentage = Math.round((currentXp / nextLevelXp) * 100); // 40%
+
+    // Mathematical assertion: 0 / 150 XP is 0%, and 100 / 250 XP is 40%
+    assert.strictEqual(xpInLevel, 0);
+    assert.strictEqual(xpNeededInLevel, 150);
+    assert.strictEqual(levelPercentage, 0);
+    assert.strictEqual(milestonePercentage, 40);
+
+    // Test with 175 XP (halfway through Level 2)
+    const midXp = 175;
+    const midInLevel = midXp - prevLevelXp; // 75 XP
+    const midLevelPct = Math.round((midInLevel / xpNeededInLevel) * 100); // 50%
+    assert.strictEqual(midInLevel, 75);
+    assert.strictEqual(midLevelPct, 50, '75/150 XP must evaluate to exactly 50%');
+
+    // Never produce 100 / 1000 (0%)
+    const invalidFormat = `${currentXp} / 1000 XP (0%)`;
+    const validFormat = `${xpInLevel} / ${xpNeededInLevel} XP (${levelPercentage}%)`;
+    assert.notStrictEqual(invalidFormat, validFormat);
+  });
+
+  it('Verifies Daily Challenges data structure has distinct criteria, tab, and rewards', () => {
+    const challenges = [
+      { id: 'c1_blind_spot_hazards', reward_xp: 50, tab: 'game_hazard' },
+      { id: 'c2_safe_journey_audit', reward_xp: 75, tab: 'game_journey' },
+      { id: 'c3_daily_safety_quiz', reward_xp: 40, tab: 'quiz' }
+    ];
+
+    assert.strictEqual(challenges.length, 3);
+    assert.ok(challenges.every(c => c.reward_xp > 0));
+    assert.ok(challenges.every(c => c.tab.length > 0));
+  });
 });

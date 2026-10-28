@@ -558,3 +558,228 @@ class LearningProgressionService:
             })
 
         return result
+
+    @staticmethod
+    def calculate_level_progression(total_xp: int) -> Dict[str, Any]:
+        """
+        Calculates mathematical level progression metrics without confusing
+        lifetime XP with tier-specific incremental XP.
+        """
+        if total_xp >= 500:
+            level = 4
+            title = "Road Safety Guardian"
+            tier_min = 500
+            tier_max = 1000
+        elif total_xp >= 250:
+            level = 3
+            title = "Defensive Champion"
+            tier_min = 250
+            tier_max = 500
+        elif total_xp >= 100:
+            level = 2
+            title = "Cautious Commuter"
+            tier_min = 100
+            tier_max = 250
+        else:
+            level = 1
+            title = "Defensive Scout"
+            tier_min = 0
+            tier_max = 100
+
+        xp_in_level = max(0, total_xp - tier_min)
+        xp_needed_in_level = max(1, tier_max - tier_min)
+        level_percentage = min(100, max(0, round((xp_in_level / xp_needed_in_level) * 100)))
+        overall_milestone_percentage = min(100, max(0, round((total_xp / tier_max) * 100)))
+
+        return {
+            "current_level": level,
+            "level_title": title,
+            "tier_start_xp": tier_min,
+            "tier_end_xp": tier_max,
+            "xp_in_level": xp_in_level,
+            "xp_needed_in_level": xp_needed_in_level,
+            "level_percentage": level_percentage,
+            "overall_milestone_percentage": overall_milestone_percentage
+        }
+
+    @staticmethod
+    def get_daily_challenges(db: Session, user_key: str) -> List[Dict[str, Any]]:
+        today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+
+        # Query all completions today for this user
+        completions_today = db.query(ActivityCompletion).filter(
+            ActivityCompletion.user_key == user_key,
+            ActivityCompletion.completed_at >= today_start
+        ).all()
+
+        completed_types = set(c.activity_type.upper() for c in completions_today)
+        completed_ids = set(c.activity_id for c in completions_today)
+
+        challenges = [
+            {
+                "id": "c1_blind_spot_hazards",
+                "title": "Spot 3 Blind Spot Hazards",
+                "action": "Spot the Hazard",
+                "tab": "game_hazard",
+                "reward_xp": 50,
+                "completed": (
+                    "c1_blind_spot_hazards" in completed_ids or
+                    "HAZARD_GAME" in completed_types or
+                    any("hazard" in cid.lower() for cid in completed_ids)
+                ),
+                "criteria": "Identify traffic hazards in Spot the Hazard"
+            },
+            {
+                "id": "c2_safe_journey_audit",
+                "title": "Complete 1 Safe Journey Pre-Trip Audit",
+                "action": "Build a Safe Journey",
+                "tab": "game_journey",
+                "reward_xp": 75,
+                "completed": (
+                    "c2_safe_journey_audit" in completed_ids or
+                    "JOURNEY_GAME" in completed_types or
+                    any("journey" in cid.lower() for cid in completed_ids)
+                ),
+                "criteria": "Assemble vehicle safety checklist and route plan"
+            },
+            {
+                "id": "c3_daily_safety_quiz",
+                "title": "Score 80%+ on Daily Safety Quiz",
+                "action": "Take Daily Quiz",
+                "tab": "quiz",
+                "reward_xp": 40,
+                "completed": (
+                    "c3_daily_safety_quiz" in completed_ids or
+                    any(c.activity_type.upper() == "QUIZ" and c.score >= 80.0 for c in completions_today)
+                ),
+                "criteria": "Pass a quiz with 80% or higher score"
+            }
+        ]
+        return challenges
+
+    @staticmethod
+    def complete_daily_challenge(
+        db: Session,
+        user_key: str,
+        challenge_id: str,
+        current_user: Optional[UserAccount] = None
+    ) -> Dict[str, Any]:
+        today_date = datetime.date.today().isoformat()
+        idempotency_key = f"{user_key}:DAILY_CHALLENGE:{challenge_id}:{today_date}"
+
+        existing = db.query(ActivityCompletion).filter(
+            ActivityCompletion.idempotency_key == idempotency_key
+        ).first()
+
+        prog = LearningProgressionService.get_or_create_user_progress(db, user_key, current_user)
+        badges = db.query(UserBadge).filter(UserBadge.user_key == user_key).all()
+
+        if existing:
+            return {
+                "status": "already_completed",
+                "message": f"Daily challenge '{challenge_id}' was already completed today. No duplicate XP awarded.",
+                "xp_awarded": 0,
+                "current_total_xp": prog.total_xp,
+                "current_level": prog.level,
+                "current_level_title": prog.level_title,
+                "newly_unlocked_badges": [],
+                "earned_badges": [b.badge_id for b in badges]
+            }
+
+        reward_xp = 50 if challenge_id == "c1_blind_spot_hazards" else 75 if challenge_id == "c2_safe_journey_audit" else 40
+        completion = ActivityCompletion(
+            completion_id=f"CMP_{uuid.uuid4().hex[:12]}",
+            user_key=user_key,
+            activity_type="DAILY_CHALLENGE",
+            activity_id=challenge_id,
+            score=100.0,
+            passed=True,
+            xp_awarded=reward_xp,
+            idempotency_key=idempotency_key,
+            metadata_json={"challenge_id": challenge_id, "date": today_date},
+            completed_at=datetime.datetime.utcnow()
+        )
+        db.add(completion)
+        prog.total_xp += reward_xp
+        prog.last_activity_at = datetime.datetime.utcnow()
+
+        # Update Level
+        prog.level = 4 if prog.total_xp >= 500 else 3 if prog.total_xp >= 250 else 2 if prog.total_xp >= 100 else 1
+        prog.level_title = "Road Safety Guardian" if prog.level == 4 else "Defensive Champion" if prog.level == 3 else "Cautious Commuter" if prog.level == 2 else "Defensive Scout"
+
+        db.commit()
+        db.refresh(prog)
+
+        newly_unlocked = LearningProgressionService.evaluate_badge_unlocks(db, user_key, prog)
+        all_badges = db.query(UserBadge).filter(UserBadge.user_key == user_key).all()
+
+        return {
+            "status": "success",
+            "message": f"Daily challenge completed! +{reward_xp} XP earned.",
+            "xp_awarded": reward_xp,
+            "current_total_xp": prog.total_xp,
+            "current_level": prog.level,
+            "current_level_title": prog.level_title,
+            "newly_unlocked_badges": newly_unlocked,
+            "earned_badges": [b.badge_id for b in all_badges]
+        }
+
+    @staticmethod
+    def migrate_guest_progress(
+        db: Session,
+        guest_session_id: str,
+        auth_user: UserAccount
+    ) -> UserLearningProgress:
+        """
+        Safely merges guest activity completions and badges into the authenticated user's record
+        without duplicating awards.
+        """
+        if not guest_session_id or guest_session_id == auth_user.user_id or guest_session_id == "guest_session":
+            return LearningProgressionService.get_or_create_user_progress(db, auth_user.user_id, auth_user)
+
+        user_key = auth_user.user_id
+        auth_prog = LearningProgressionService.get_or_create_user_progress(db, user_key, auth_user)
+        guest_prog = db.query(UserLearningProgress).filter(UserLearningProgress.user_key == guest_session_id).first()
+
+        if not guest_prog:
+            return auth_prog
+
+        # Migrate completions
+        guest_completions = db.query(ActivityCompletion).filter(ActivityCompletion.user_key == guest_session_id).all()
+        for comp in guest_completions:
+            new_idempotency = f"{user_key}:{comp.activity_type}:{comp.activity_id}"
+            exists = db.query(ActivityCompletion).filter(ActivityCompletion.idempotency_key == new_idempotency).first()
+            if not exists:
+                comp.user_key = user_key
+                comp.idempotency_key = new_idempotency
+                auth_prog.total_xp += comp.xp_awarded
+                if comp.activity_type in ["SCENARIO", "HAZARD_GAME", "MEMORY_GAME", "JOURNEY_GAME", "FAMILY_CHALLENGE", "DAILY_CHALLENGE"]:
+                    auth_prog.games_completed += 1
+                elif comp.activity_type == "QUIZ":
+                    auth_prog.quizzes_completed += 1
+                elif comp.activity_type in ["LESSON", "CASE_STUDY"]:
+                    auth_prog.lessons_read += 1
+                    if comp.activity_type == "CASE_STUDY":
+                        auth_prog.case_studies_completed += 1
+
+        # Migrate badges
+        guest_badges = db.query(UserBadge).filter(UserBadge.user_key == guest_session_id).all()
+        for badge in guest_badges:
+            new_badge_idempotency = f"{user_key}:{badge.badge_id}"
+            exists = db.query(UserBadge).filter(UserBadge.idempotency_key == new_badge_idempotency).first()
+            if not exists:
+                badge.user_key = user_key
+                badge.idempotency_key = new_badge_idempotency
+
+        # Update Level
+        auth_prog.level = 4 if auth_prog.total_xp >= 500 else 3 if auth_prog.total_xp >= 250 else 2 if auth_prog.total_xp >= 100 else 1
+        auth_prog.level_title = "Road Safety Guardian" if auth_prog.level == 4 else "Defensive Champion" if auth_prog.level == 3 else "Cautious Commuter" if auth_prog.level == 2 else "Defensive Scout"
+        auth_prog.streak_days = max(auth_prog.streak_days, guest_prog.streak_days)
+        auth_prog.session_id = guest_session_id
+
+        # Clean up guest progress record so it won't be re-migrated
+        db.delete(guest_prog)
+        db.commit()
+        db.refresh(auth_prog)
+        return auth_prog
+

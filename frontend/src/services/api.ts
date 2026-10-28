@@ -488,20 +488,50 @@ export interface Achievement {
   unlocked_at?: string;
 }
 
+export interface DailyChallengeItem {
+  id: string;
+  title: string;
+  action: string;
+  tab: string;
+  reward_xp: number;
+  completed: boolean;
+  completed_at?: string | null;
+  criteria: string;
+}
+
+export interface LevelProgressDetails {
+  current_level: number;
+  level_title: string;
+  tier_start_xp: number;
+  tier_end_xp: number;
+  xp_in_level: number;
+  xp_needed_in_level: number;
+  level_percentage: number;
+  overall_milestone_percentage: number;
+}
+
 export interface UserProgress {
+  user_key?: string;
   user_id: string;
+  is_authenticated?: boolean;
+  username?: string;
   total_xp: number;
+  lifetime_xp?: number;
   level: number;
   level_title: string;
+  level_progress?: LevelProgressDetails;
   quizzes_completed: number;
   quiz_accuracy_pct: number;
   games_completed: number;
   lessons_read: number;
   lessons_completed?: number;
   streak_days: number;
+  longest_streak_days?: number;
   earned_badges: string[];
   case_studies_completed?: number;
   family_pledge_signed?: boolean;
+  daily_challenges?: DailyChallengeItem[];
+  last_activity_at?: string;
 }
 
 export interface AccidentCaseStudy {
@@ -624,6 +654,24 @@ export interface ActivityCompletionResponse {
   earned_badges: string[];
 }
 
+export const getAuthoritativeSessionId = (): string => {
+  if (typeof window === 'undefined') return 'guest_session';
+  const userStr = localStorage.getItem('tera_user');
+  if (userStr) {
+    try {
+      const u = JSON.parse(userStr);
+      const id = u.id || u.uid || u.user_id || u.email;
+      if (id && id !== 'guest_citizen') return String(id);
+    } catch {}
+  }
+  let guestId = localStorage.getItem('tera_explore_session_id');
+  if (!guestId) {
+    guestId = 'guest_' + Math.random().toString(36).substring(2, 12);
+    localStorage.setItem('tera_explore_session_id', guestId);
+  }
+  return guestId;
+};
+
 export const exploreApi = {
   getStatistics: async (): Promise<StatisticsData> => {
     const res = await api.get('/explore/statistics');
@@ -684,7 +732,8 @@ export const exploreApi = {
     locked_count: number;
     badges: Badge[];
   }> => {
-    const res = await api.get('/explore/badges', { params: { session_id: sessionId } });
+    const sid = sessionId || getAuthoritativeSessionId();
+    const res = await api.get('/explore/badges', { params: { session_id: sid } });
     return res.data;
   },
   getScenarios: async () => {
@@ -708,7 +757,8 @@ export const exploreApi = {
     return res.data;
   },
   getProgress: async (sessionId?: string): Promise<UserProgress> => {
-    const res = await api.get('/explore/progress', { params: { session_id: sessionId } });
+    const sid = sessionId || getAuthoritativeSessionId();
+    const res = await api.get('/explore/progress', { params: { session_id: sid } });
     return res.data?.progress || res.data;
   },
   completeActivity: async (data: {
@@ -719,7 +769,16 @@ export const exploreApi = {
     passed?: boolean;
     metadata?: any;
   }): Promise<ActivityCompletionResponse> => {
-    const res = await api.post('/explore/activity/complete', data);
+    const sid = data.session_id || getAuthoritativeSessionId();
+    const res = await api.post('/explore/activity/complete', { ...data, session_id: sid });
+    return res.data;
+  },
+  completeDailyChallenge: async (challengeId: string, sessionId?: string): Promise<ActivityCompletionResponse> => {
+    const sid = sessionId || getAuthoritativeSessionId();
+    const res = await api.post('/explore/daily-challenge/complete', {
+      challenge_id: challengeId,
+      session_id: sid
+    });
     return res.data;
   },
   updateProgress: async (data: {
@@ -731,7 +790,8 @@ export const exploreApi = {
     achievement_id?: string;
     pledge_name?: string;
   }) => {
-    const res = await api.post('/explore/progress', data);
+    const sid = data.session_id || getAuthoritativeSessionId();
+    const res = await api.post('/explore/progress', { ...data, session_id: sid });
     return res.data;
   },
   signPledge: async (data: {

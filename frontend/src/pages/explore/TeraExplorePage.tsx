@@ -802,11 +802,17 @@ export const TeraExplorePage: React.FC<TeraExplorePageProps> = ({
 
         {activeTab === 'my_journey' && (
           <MySafetyJourneyView 
+            userProgress={userProgress}
+            guestId={guestId}
+            onRefresh={loadUserProgress}
+            onActivityComplete={handleAuthoritativeResponse}
             onStartActivity={(tab) => {
-              if (tab === 'hazard') setActiveTab('game_hazard');
-              else if (tab === 'journey') setActiveTab('game_journey');
-              else if (tab === 'quizzes') setActiveTab('quiz');
-              else if (tab === 'badges') setActiveTab('my_badges');
+              if (tab === 'hazard' || tab === 'game_hazard') setActiveTab('game_hazard');
+              else if (tab === 'journey' || tab === 'game_journey') setActiveTab('game_journey');
+              else if (tab === 'quizzes' || tab === 'quiz') setActiveTab('quiz');
+              else if (tab === 'badges' || tab === 'my_badges') setActiveTab('my_badges');
+              else if (tab === 'case_studies') setActiveTab('case_studies');
+              else if (tab === 'stories') setActiveTab('stories');
               else setActiveTab('home');
             }}
             onExit={() => setActiveTab('home')}
