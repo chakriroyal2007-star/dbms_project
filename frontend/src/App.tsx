@@ -17,6 +17,7 @@ import { FieldResponderPage } from './pages/FieldResponderPage';
 import { DBMSArchitecturePage } from './pages/DBMSArchitecturePage';
 import { TeraExplorePage } from './pages/explore/TeraExplorePage';
 import { PublicTrackerModal } from './components/PublicTrackerModal';
+import { CosmicGalaxyWelcome } from './components/CosmicGalaxyWelcome';
 import { 
   IncidentsView, AmbulancesView, HospitalsView, 
   ResourcesView, RoadsView, TeamsView, SettingsView 
@@ -77,6 +78,19 @@ export const App: React.FC = () => {
     return Boolean(localStorage.getItem('tera_token'));
   });
   const [hydrationError, setHydrationError] = useState<string | null>(null);
+
+  const [showGalaxyIntro, setShowGalaxyIntro] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    if (isExploreRouteActive()) return false;
+    const hash = window.location.hash.replace('#', '').toLowerCase();
+    if (hash && hash !== 'welcome') return false;
+    if (localStorage.getItem('tera_user')) return false;
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.get('intro') === 'true') return true;
+    } catch {}
+    return !localStorage.getItem('tera_galaxy_intro_seen');
+  });
 
   const [selectedIncidentForAllocation, setSelectedIncidentForAllocation] = useState<string | null>(null);
   const [trackedIncidentModal, setTrackedIncidentModal] = useState<PublicTrackedIncident | null>(null);
@@ -313,6 +327,19 @@ export const App: React.FC = () => {
     );
   }
 
+  if (showGalaxyIntro) {
+    return (
+      <CosmicGalaxyWelcome
+        onEnter={() => setShowGalaxyIntro(false)}
+        onSkip={() => setShowGalaxyIntro(false)}
+        onEmergencySOS={() => {
+          setShowGalaxyIntro(false);
+          handleGuestEmergencyReport();
+        }}
+      />
+    );
+  }
+
   if (view === 'welcome') {
     return (
       <>
@@ -336,6 +363,7 @@ export const App: React.FC = () => {
             setActiveTab('explore');
             window.location.hash = 'explore';
           }}
+          onReplayIntro={() => setShowGalaxyIntro(true)}
         />
         {trackedIncidentModal && (
           <PublicTrackerModal

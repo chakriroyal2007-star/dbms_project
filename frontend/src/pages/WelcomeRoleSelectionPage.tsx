@@ -23,6 +23,7 @@ interface WelcomeRoleSelectionPageProps {
   onTrackIncident: (incident: PublicTrackedIncident) => void;
   onExploreSystem: () => void;
   onExploreMore?: () => void;
+  onReplayIntro?: () => void;
 }
 
 interface RoleCardConfig {
@@ -47,7 +48,8 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
   onGuestEmergencyReport,
   onTrackIncident,
   onExploreSystem,
-  onExploreMore
+  onExploreMore,
+  onReplayIntro
 }) => {
   // Modal & Auth State
   const [selectedRoleForAuth, setSelectedRoleForAuth] = useState<RoleCardConfig | null>(null);
@@ -407,6 +409,18 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
 
         {/* Header Actions */}
         <div className="flex items-center gap-3">
+          {onReplayIntro && (
+            <button
+              id="nav-cosmic-intro-btn"
+              onClick={onReplayIntro}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 hover:text-white border border-purple-500/40 hover:border-purple-400 transition-all text-xs font-semibold cursor-pointer shadow-md hover:shadow-purple-500/25"
+              title="Experience 3D Cinematic Galaxy Welcome Intro"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span className="hidden sm:inline">3D Galaxy</span>
+            </button>
+          )}
+
           {onExploreMore && (
             <button
               id="nav-explore-btn"
@@ -460,9 +474,24 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
             Connecting witnesses, emergency dispatchers, hospital trauma beds, and active field ambulances in one unified, auditable database coordination platform.
           </p>
 
-          {/* Direct Explore 2.0 Feature Banner - Unmissable Above Fold */}
-          {onExploreMore && (
-            <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+          {/* Direct Explore 2.0 & 3D Galaxy Intro Feature Banners - Unmissable Above Fold */}
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+            {onReplayIntro && (
+              <button
+                id="hero-cosmic-pill-btn"
+                onClick={onReplayIntro}
+                className="group inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-purple-500/15 via-indigo-500/20 to-cyan-500/15 hover:from-purple-500/25 hover:to-indigo-500/30 border border-purple-500/40 text-purple-200 hover:text-white transition-all text-xs font-semibold cursor-pointer shadow-[0_0_20px_rgba(168,85,247,0.15)] hover:shadow-[0_0_30px_rgba(168,85,247,0.3)] transform hover:-translate-y-0.5"
+                title="Experience 3D Cinematic Galaxy Welcome Intro"
+              >
+                <Sparkles className="w-4 h-4 text-purple-400 group-hover:rotate-12 transition-transform" />
+                <span className="font-bold">3D Galaxy Welcome</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-purple-400/20 text-purple-200 text-[10px] font-mono font-bold border border-purple-400/30">
+                  Interactive WebGL
+                </span>
+              </button>
+            )}
+
+            {onExploreMore && (
               <button
                 id="hero-explore-pill-btn"
                 onClick={onExploreMore}
@@ -475,8 +504,8 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
                 </span>
                 <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Quick Tracking Search Bar */}
