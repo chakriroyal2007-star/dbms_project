@@ -409,12 +409,16 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
         <div className="flex items-center gap-3">
           {onExploreMore && (
             <button
+              id="nav-explore-btn"
               onClick={onExploreMore}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-950/80 to-teal-950/80 hover:from-cyan-900/90 hover:to-teal-900/90 text-cyan-300 hover:text-white border border-cyan-500/40 transition-all text-xs font-semibold cursor-pointer shadow-sm"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-950/90 to-teal-950/90 hover:from-cyan-900 hover:to-teal-900 text-cyan-300 hover:text-white border border-cyan-500/50 transition-all text-xs font-semibold cursor-pointer shadow-md hover:shadow-cyan-500/20"
               title="Interactive Road Safety Games, Quizzes, & Analytics"
             >
               <Compass className="w-4 h-4 text-cyan-400" />
-              <span>Explore Road Safety & Games</span>
+              <span>Road Safety & Games</span>
+              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded-full bg-cyan-400/20 text-cyan-200 text-[9px] font-mono font-bold border border-cyan-400/30">
+                5 Games
+              </span>
             </button>
           )}
 
@@ -455,6 +459,24 @@ export const WelcomeRoleSelectionPage: React.FC<WelcomeRoleSelectionPageProps> =
           <p className="text-sm sm:text-base text-zinc-400 max-w-2xl mx-auto leading-relaxed">
             Connecting witnesses, emergency dispatchers, hospital trauma beds, and active field ambulances in one unified, auditable database coordination platform.
           </p>
+
+          {/* Direct Explore 2.0 Feature Banner - Unmissable Above Fold */}
+          {onExploreMore && (
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+              <button
+                id="hero-explore-pill-btn"
+                onClick={onExploreMore}
+                className="group inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-gradient-to-r from-cyan-500/15 via-teal-500/20 to-emerald-500/15 hover:from-cyan-500/25 hover:to-teal-500/30 border border-cyan-500/40 text-cyan-300 hover:text-white transition-all text-xs font-semibold cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.15)] hover:shadow-[0_0_30px_rgba(6,182,212,0.3)] transform hover:-translate-y-0.5"
+              >
+                <Compass className="w-4 h-4 text-cyan-400 group-hover:rotate-45 transition-transform" />
+                <span className="font-bold">TERA Explore 2.0: Road Safety & Educational Games</span>
+                <span className="px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-200 text-[10px] font-mono font-bold border border-cyan-400/30">
+                  5 Games • Quizzes • MoRTH Data
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Quick Tracking Search Bar */}

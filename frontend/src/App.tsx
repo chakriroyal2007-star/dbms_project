@@ -37,6 +37,13 @@ export {
   getValidTabForRole 
 };
 
+const isExploreRouteActive = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const hash = window.location.hash.replace('#', '').toLowerCase();
+  const path = window.location.pathname.toLowerCase();
+  return hash === 'explore' || path === '/explore' || path.startsWith('/explore');
+};
+
 export const App: React.FC = () => {
   // Session User State: Reads saved session or defaults to null
   const [user, setUser] = useState<User | null>(() => {
@@ -48,10 +55,12 @@ export const App: React.FC = () => {
   });
 
   const [view, setView] = useState<'welcome' | 'app'>(() => {
+    if (isExploreRouteActive()) return 'app';
     return localStorage.getItem('tera_user') ? 'app' : 'welcome';
   });
   
   const [activeTab, setActiveTab] = useState<string>(() => {
+    if (isExploreRouteActive()) return 'explore';
     const saved = localStorage.getItem('tera_user');
     let u: User | null = null;
     if (saved) {
@@ -132,10 +141,15 @@ export const App: React.FC = () => {
         localStorage.setItem('tera_user', JSON.stringify(authenticatedUser));
         setView('app');
 
-        const hash = window.location.hash.replace('#', '');
-        const targetTab = hash ? getValidTabForRole(hash, meData.role) : getDefaultTabForRole(meData.role);
-        setActiveTab(targetTab);
-        window.location.hash = targetTab;
+        if (isExploreRouteActive()) {
+          setActiveTab('explore');
+          window.location.hash = 'explore';
+        } else {
+          const hash = window.location.hash.replace('#', '');
+          const targetTab = hash ? getValidTabForRole(hash, meData.role) : getDefaultTabForRole(meData.role);
+          setActiveTab(targetTab);
+          window.location.hash = targetTab;
+        }
         setIsHydrating(false);
       })
       .catch((err) => {
@@ -155,10 +169,15 @@ export const App: React.FC = () => {
               if (u && u.role && ROLE_DEFAULT_TABS[u.role.toUpperCase()]) {
                 setUser(u);
                 setView('app');
-                const hash = window.location.hash.replace('#', '');
-                const targetTab = hash ? getValidTabForRole(hash, u.role) : getDefaultTabForRole(u.role);
-                setActiveTab(targetTab);
-                window.location.hash = targetTab;
+                if (isExploreRouteActive()) {
+                  setActiveTab('explore');
+                  window.location.hash = 'explore';
+                } else {
+                  const hash = window.location.hash.replace('#', '');
+                  const targetTab = hash ? getValidTabForRole(hash, u.role) : getDefaultTabForRole(u.role);
+                  setActiveTab(targetTab);
+                  window.location.hash = targetTab;
+                }
               }
             } catch (e) {}
           }
@@ -171,16 +190,16 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Sync hash routing on window back/forward with strict authorization validation
+  // Sync hash & pathname routing on navigation with strict authorization validation
   React.useEffect(() => {
-    const handleHashChange = () => {
+    const handleNavigation = () => {
+      if (isExploreRouteActive()) {
+        setView('app');
+        setActiveTab('explore');
+        return;
+      }
       const hash = window.location.hash.replace('#', '');
       if (hash) {
-        if (hash === 'explore') {
-          setView('app');
-          setActiveTab('explore');
-          return;
-        }
         if (!user) {
           setView('welcome');
           window.location.hash = '';
@@ -199,8 +218,14 @@ export const App: React.FC = () => {
         }
       }
     };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+
+    handleNavigation(); // Immediate check on mount!
+    window.addEventListener('hashchange', handleNavigation);
+    window.addEventListener('popstate', handleNavigation);
+    return () => {
+      window.removeEventListener('hashchange', handleNavigation);
+      window.removeEventListener('popstate', handleNavigation);
+    };
   }, [user]);
 
   const handleSelectTab = (tab: string) => {
@@ -332,7 +357,11 @@ export const App: React.FC = () => {
               handleSelectTab(getDefaultTabForRole(user.role));
             } else {
               setView('welcome');
+              setActiveTab('');
               window.location.hash = '';
+              if (window.location.pathname.toLowerCase().includes('explore')) {
+                window.history.pushState(null, '', '/');
+              }
             }
           }}
           onNavigateToSOS={() => {

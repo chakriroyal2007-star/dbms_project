@@ -106,6 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user }
       { id: 'allocation', label: 'Allocation Engine', icon: Network, highlight: true },
       { id: 'simulation', label: 'Disaster Simulation', icon: Sliders, highlight: true },
       { id: 'historical', label: 'Temporal Intelligence', icon: History },
+      { id: 'explore', label: 'Road Safety & Games', icon: Compass, badge: '5 Games' },
     ];
 
     return (
@@ -195,6 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user }
       { id: 'performance', label: 'Performance & EXPLAIN', icon: Cpu },
       { id: 'explorer', label: 'Database Explorer', icon: Database, badge: '18 Tables' },
       { id: 'dbms_architecture', label: 'DBMS Architecture', icon: Layers },
+      { id: 'explore', label: 'Road Safety & Games', icon: Compass, badge: '5 Games' },
     ];
 
     return (
@@ -254,6 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user }
       { id: 'resources', label: 'Critical Medical Supplies', icon: Package },
       { id: 'ambulances', label: 'Stationed Ambulance Units', icon: Truck },
       { id: 'incidents', label: 'Incoming Triage Requests', icon: AlertTriangle },
+      { id: 'explore', label: 'Road Safety & Games', icon: Compass, badge: '5 Games' },
     ];
 
     return (
@@ -311,6 +314,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user }
     const responderNav = [
       { id: 'field_responder', label: 'Active Dispatches & GPS', icon: Truck, badge: 'On-Call' },
       { id: 'incidents', label: 'Assigned Incident Details', icon: AlertTriangle },
+      { id: 'explore', label: 'Road Safety & Games', icon: Compass, badge: '5 Games' },
     ];
 
     return (
